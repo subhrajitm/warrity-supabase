@@ -15,94 +15,59 @@ import { Textarea } from "@/components/ui/textarea"
 import { ArrowLeft, Calendar as CalendarIcon, Shield, Wrench, AlertTriangle, Info, Plus, Trash2 } from "lucide-react"
 import WarrantySidebar from "../warranties/components/sidebar"
 import { useAuth } from "@/lib/auth-context"
+import { eventApi, productApi } from "@/lib/api"
+
+// Define the API event interface to match the backend model
+interface ApiEvent {
+  _id: string;
+  title: string;
+  description: string;
+  eventType: string;
+  startDate: string;
+  endDate: string;
+  allDay: boolean;
+  location?: string;
+  color?: string;
+  category?: string;
+  relatedProduct?: string | { _id: string; name: string };
+  relatedWarranty?: string | { _id: string; name: string };
+  notifications?: {
+    enabled: boolean;
+    reminderTime: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Define the API product interface
+interface ApiProduct {
+  _id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  manufacturer?: string;
+  model?: string;
+}
 
 // Define the event type
 interface CalendarEvent {
-  id: number;
+  id: string;
+  _id: string;
   title: string;
   date: string;
   type: string;
-  productId: number;
+  productId: string;
   productName: string;
   description?: string;
   time?: string;
   reminder?: boolean;
+  startDate: string;
+  endDate: string;
+  eventType: string;
+  allDay: boolean;
+  relatedProduct?: string;
+  relatedWarranty?: string;
 }
-
-// Mock products for the dropdown
-const mockProducts = [
-  { id: 1, name: "Samsung 55\" QLED TV" },
-  { id: 2, name: "Bosch Dishwasher" },
-  { id: 3, name: "MacBook Pro 16\"" },
-  { id: 4, name: "Dyson V11 Vacuum" },
-  { id: 5, name: "Sony WH-1000XM4 Headphones" },
-  { id: 6, name: "iPhone 13 Pro" },
-  { id: 7, name: "LG Refrigerator" },
-];
-
-// Mock calendar events
-const mockEvents: CalendarEvent[] = [
-  {
-    id: 1,
-    title: "Samsung TV Warranty Expiration",
-    date: "2025-05-15",
-    type: "warranty",
-    productId: 1,
-    productName: "Samsung 55\" QLED TV",
-    description: "Extended warranty expires on this date. Consider renewal options.",
-    time: "09:00"
-  },
-  {
-    id: 2,
-    title: "Bosch Dishwasher Warranty Expiration",
-    date: "2024-11-03",
-    type: "warranty",
-    productId: 2,
-    productName: "Bosch Dishwasher",
-    description: "Standard manufacturer warranty expires.",
-    time: "00:00"
-  },
-  {
-    id: 3,
-    title: "MacBook Pro Warranty Expiration",
-    date: "2025-01-20",
-    type: "warranty",
-    productId: 3,
-    productName: "MacBook Pro 16\"",
-    description: "AppleCare+ coverage ends. Consider extending protection.",
-    time: "00:00"
-  },
-  {
-    id: 4,
-    title: "Dyson V11 Filter Cleaning",
-    date: "2023-12-15",
-    type: "maintenance",
-    productId: 4,
-    productName: "Dyson V11 Vacuum",
-    description: "Regular maintenance: Clean the filter for optimal performance.",
-    time: "10:00"
-  },
-  {
-    id: 5,
-    title: "Sony Headphones Warranty Expiration",
-    date: "2024-03-05",
-    type: "warranty",
-    productId: 5,
-    productName: "Sony WH-1000XM4 Headphones",
-    description: "Manufacturer warranty expires.",
-    time: "00:00"
-  },
-  {
-    id: 6,
-    title: "MacBook Pro Software Update",
-    date: "2023-12-10",
-    type: "maintenance",
-    productId: 3,
-    productName: "MacBook Pro 16\"",
-    description: "Scheduled software update and system cleanup.",
-    time: "14:00"
-  }
-];
 
 export default function CalendarPage() {
   const router = useRouter()
@@ -112,19 +77,85 @@ export default function CalendarPage() {
   const [filterType, setFilterType] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [newEvent, setNewEvent] = useState<Omit<CalendarEvent, 'id'>>({
+  const [newEvent, setNewEvent] = useState<Omit<CalendarEvent, 'id' | '_id'>>({
     title: "",
     date: new Date().toISOString().split('T')[0],
     type: "warranty",
-    productId: 0,
+    productId: "",
     productName: "",
     description: "",
     time: "09:00",
-    reminder: true
+    reminder: true,
+    startDate: new Date().toISOString(),
+    endDate: new Date().toISOString(),
+    eventType: "warranty",
+    allDay: false
   })
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  
+  const [products, setProducts] = useState<{id: string, name: string}[]>([])
+
+  // Fetch events from API
+  const fetchEvents = async () => {
+    try {
+      setIsLoading(true)
+      
+      // Use the eventApi to fetch events
+      const response = await eventApi.getAllEvents()
+      
+      if (response.error) {
+        throw new Error(response.error)
+      }
+      
+      // Transform API data to match our component's expected format
+      const formattedEvents = (response.data?.events || []).map((event: ApiEvent) => ({
+        id: event._id,
+        _id: event._id,
+        title: event.title,
+        date: new Date(event.startDate).toISOString().split('T')[0],
+        type: event.eventType,
+        productId: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct || "",
+        productName: typeof event.relatedProduct === 'object' ? event.relatedProduct.name : "",
+        description: event.description,
+        time: event.allDay ? "00:00" : new Date(event.startDate).toTimeString().slice(0, 5),
+        reminder: event.notifications?.enabled || false,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        eventType: event.eventType,
+        allDay: event.allDay,
+        relatedProduct: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct,
+        relatedWarranty: typeof event.relatedWarranty === 'object' ? event.relatedWarranty._id : event.relatedWarranty
+      }))
+      
+      return formattedEvents
+    } catch (err) {
+      console.error('Error fetching events:', err)
+      return []
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch products from API
+  const fetchProducts = async () => {
+    try {
+      // Use the productApi to fetch products
+      const response = await productApi.getAllProducts()
+      
+      if (response.error) {
+        throw new Error(response.error)
+      }
+      
+      return (response.data?.products || []).map((product: ApiProduct) => ({
+        id: product._id,
+        name: product.name
+      }))
+    } catch (err) {
+      console.error('Error fetching products:', err)
+      return []
+    }
+  }
+
   // Check if user is logged in and fetch events
   useEffect(() => {
     if (!authLoading) {
@@ -133,13 +164,16 @@ export default function CalendarPage() {
       } else if (user && user.role !== 'user') {
         router.replace(user.role === 'admin' ? '/admin' : '/login')
       } else {
-        // In a real app, you would fetch the events from your backend
-        setEvents(mockEvents)
+        // Fetch real data from API
+        Promise.all([fetchEvents(), fetchProducts()]).then(([eventsData, productsData]) => {
+          setEvents(eventsData)
+          setProducts(productsData)
+        })
       }
       setIsLoading(false)
     }
   }, [router, authLoading, isAuthenticated, user])
-  
+
   // Filter events based on selected date and filter type
   const filteredEvents = events.filter(event => {
     const eventDate = new Date(event.date)
@@ -150,12 +184,12 @@ export default function CalendarPage() {
     
     return isSameDay && (filterType === "all" || event.type === filterType)
   })
-  
+
   // Get dates with events for highlighting in calendar
   const getDatesWithEvents = () => {
     return events.map(event => new Date(event.date))
   }
-  
+
   // Get event type badge
   const getEventTypeBadge = (type: string) => {
     switch (type) {
@@ -182,7 +216,7 @@ export default function CalendarPage() {
         )
     }
   }
-  
+
   // Format date for display
   const formatDate = (dateString: string) => {
     const options: Intl.DateTimeFormatOptions = { 
@@ -193,7 +227,7 @@ export default function CalendarPage() {
     }
     return new Date(dateString).toLocaleDateString(undefined, options)
   }
-  
+
   // Handle new event form changes
   const handleNewEventChange = (field: string, value: any) => {
     setNewEvent(prev => ({
@@ -201,10 +235,10 @@ export default function CalendarPage() {
       [field]: value
     }))
   }
-  
+
   // Handle product selection
-  const handleProductSelect = (productId: number) => {
-    const product = mockProducts.find(p => p.id === productId)
+  const handleProductSelect = (productId: string) => {
+    const product = products.find(p => p.id === productId)
     if (product) {
       setNewEvent(prev => ({
         ...prev,
@@ -213,55 +247,117 @@ export default function CalendarPage() {
       }))
     }
   }
-  
+
   // Handle event creation
-  const handleCreateEvent = () => {
+  const handleCreateEvent = async () => {
     // Validate form
     if (!newEvent.title || !newEvent.date || !newEvent.productId) {
       alert("Please fill in all required fields")
       return
     }
     
-    // Create new event
-    const newEventWithId: CalendarEvent = {
-      ...newEvent,
-      id: events.length + 1
+    try {
+      // Prepare event data for API
+      const eventData = {
+        title: newEvent.title,
+        description: newEvent.description || "",
+        eventType: newEvent.type,
+        startDate: new Date(`${newEvent.date}T${newEvent.time || '00:00'}`).toISOString(),
+        endDate: new Date(`${newEvent.date}T${newEvent.time || '00:00'}`).toISOString(),
+        allDay: !newEvent.time || newEvent.time === '00:00',
+        relatedProduct: newEvent.productId,
+        location: "", // Required by the API
+        color: "#3498db", // Default color
+        category: newEvent.type, // Use event type as category
+        notifications: {
+          enabled: newEvent.reminder || false,
+          reminderTime: 24 // Default to 24 hours before
+        }
+      }
+      
+      // Send to API using eventApi
+      const response = await eventApi.createEvent(eventData)
+      
+      if (response.error) {
+        throw new Error(response.error)
+      }
+      
+      // Add to events list with the returned data
+      if (response.data?.event) {
+        const event = response.data.event as ApiEvent
+        const newEventWithId: CalendarEvent = {
+          id: event._id,
+          _id: event._id,
+          title: event.title,
+          date: new Date(event.startDate).toISOString().split('T')[0],
+          type: event.eventType,
+          productId: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct || "",
+          productName: newEvent.productName,
+          description: event.description,
+          time: event.allDay ? "00:00" : new Date(event.startDate).toTimeString().slice(0, 5),
+          reminder: event.notifications?.enabled || false,
+          startDate: event.startDate,
+          endDate: event.endDate,
+          eventType: event.eventType,
+          allDay: event.allDay,
+          relatedProduct: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct,
+          relatedWarranty: typeof event.relatedWarranty === 'object' ? event.relatedWarranty._id : event.relatedWarranty
+        }
+        
+        setEvents(prev => [...prev, newEventWithId])
+      }
+      
+      // Reset form and close dialog
+      setNewEvent({
+        title: "",
+        date: new Date().toISOString().split('T')[0],
+        type: "warranty",
+        productId: "",
+        productName: "",
+        description: "",
+        time: "09:00",
+        reminder: true,
+        startDate: new Date().toISOString(),
+        endDate: new Date().toISOString(),
+        eventType: "warranty",
+        allDay: false
+      })
+      setIsDialogOpen(false)
+      
+      // Select the date of the new event
+      setSelectedDate(new Date(newEvent.date))
+    } catch (err) {
+      console.error('Error creating event:', err)
+      alert('Failed to create event. Please try again.')
     }
-    
-    // Add to events list
-    setEvents(prev => [...prev, newEventWithId])
-    
-    // Reset form and close dialog
-    setNewEvent({
-      title: "",
-      date: new Date().toISOString().split('T')[0],
-      type: "warranty",
-      productId: 0,
-      productName: "",
-      description: "",
-      time: "09:00",
-      reminder: true
-    })
-    setIsDialogOpen(false)
-    
-    // Select the date of the new event
-    setSelectedDate(new Date(newEvent.date))
   }
-  
+
   // Handle event deletion
-  const handleDeleteEvent = (id: number) => {
+  const handleDeleteEvent = async (id: string) => {
     if (confirm("Are you sure you want to delete this event?")) {
-      setEvents(prev => prev.filter(event => event.id !== id))
-      setIsViewDialogOpen(false)
+      try {
+        // Use eventApi to delete the event
+        const response = await eventApi.deleteEvent(id)
+        
+        if (response.error) {
+          throw new Error(response.error)
+        }
+        
+        setEvents(prev => prev.filter(event => event.id !== id))
+        setIsViewDialogOpen(false)
+      } catch (err) {
+        console.error('Error deleting event:', err)
+        alert('Failed to delete event. Please try again.')
+      }
     }
   }
-  
+
   // View event details
   const handleViewEvent = (event: CalendarEvent) => {
     setSelectedEvent(event)
     setIsViewDialogOpen(true)
   }
-  
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-amber-50">
@@ -273,7 +369,7 @@ export default function CalendarPage() {
       </div>
     )
   }
-  
+
   return (
     <div className="flex min-h-screen bg-amber-50">
       <WarrantySidebar />
@@ -368,6 +464,7 @@ export default function CalendarPage() {
                         <SelectContent>
                           <SelectItem value="warranty">Warranty</SelectItem>
                           <SelectItem value="maintenance">Maintenance</SelectItem>
+                          <SelectItem value="reminder">Reminder</SelectItem>
                           <SelectItem value="other">Other</SelectItem>
                         </SelectContent>
                       </Select>
@@ -376,15 +473,15 @@ export default function CalendarPage() {
                     <div className="space-y-2">
                       <Label htmlFor="product" className="text-amber-900">Related Product</Label>
                       <Select 
-                        value={newEvent.productId.toString()} 
-                        onValueChange={(value) => handleProductSelect(parseInt(value))}
+                        value={newEvent.productId} 
+                        onValueChange={(value) => handleProductSelect(value)}
                       >
                         <SelectTrigger id="product" className="border-2 border-amber-800 bg-amber-50">
                           <SelectValue placeholder="Select a product" />
                         </SelectTrigger>
                         <SelectContent>
-                          {mockProducts.map(product => (
-                            <SelectItem key={product.id} value={product.id.toString()}>
+                          {products.map(product => (
+                            <SelectItem key={product.id} value={product.id}>
                               {product.name}
                             </SelectItem>
                           ))}
