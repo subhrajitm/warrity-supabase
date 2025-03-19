@@ -1,68 +1,117 @@
 const Warranty = require('../models/warranty.model');
-const Product = require('../models/product.model');
 const fs = require('fs');
 const path = require('path');
+const logger = require('../config/logger');
 
-// Get all warranties for current user
-const getAllWarranties = async (req, res) => {
+/**
+ * Get all warranties for the current user
+ */
+exports.getAllWarranties = async (req, res) => {
   try {
-    const { status, sort } = req.query;
+    const warranties = await Warranty.find({ user: req.user.id })
+      .populate('product', 'name brand category')
+      .sort({ createdAt: -1 });
     
-    // Build query
-    const query = { user: req.user._id };
-    
-    // Filter by status if provided
-    if (status && ['active', 'expiring', 'expired'].includes(status)) {
-      query.status = status;
-    }
-    
-    // Build sort options
-    let sortOptions = {};
-    if (sort === 'expiringSoon') {
-      sortOptions = { expirationDate: 1 }; // Ascending order (soonest first)
-    } else if (sort === 'newest') {
-      sortOptions = { createdAt: -1 }; // Descending order (newest first)
-    } else if (sort === 'oldest') {
-      sortOptions = { createdAt: 1 }; // Ascending order (oldest first)
-    } else {
-      // Default sort by expiration date
-      sortOptions = { expirationDate: 1 };
-    }
-    
-    // Find warranties
-    const warranties = await Warranty.find(query)
-      .populate('product')
-      .sort(sortOptions);
-    
-    res.status(200).json({ warranties });
+    res.json(warranties);
   } catch (error) {
+    logger.error(`Error getting warranties: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Get warranty by ID
-const getWarrantyById = async (req, res) => {
+/**
+ * Get warranties expiring soon (within 30 days)
+ */
+// Make sure this function is properly defined as a function, not an object
+exports.getExpiringWarranties = async (req, res) => {
   try {
-    const warranty = await Warranty.findById(req.params.id)
-      .populate('product');
+    const today = new Date();
+    const thirtyDaysFromNow = new Date(today);
+    thirtyDaysFromNow.setDate(today.getDate() + 30);
+    
+    // Your implementation to get expiring warranties
+    // Example:
+    const warranties = await Warranty.find({
+      user: req.user.id,
+      expirationDate: {
+        $gte: today,
+        $lte: thirtyDaysFromNow
+      }
+    }).populate('product');
+    
+    res.json(warranties);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Get warranty statistics
+ */
+exports.getWarrantyStats = async (req, res) => {
+  try {
+    const today = new Date();
+    const thirtyDaysFromNow = new Date(today);
+    thirtyDaysFromNow.setDate(today.getDate() + 30);
+    
+    const total = await Warranty.countDocuments({ user: req.user.id });
+    
+    const active = await Warranty.countDocuments({
+      user: req.user.id,
+      expirationDate: { $gt: thirtyDaysFromNow }
+    });
+    
+    const expiring = await Warranty.countDocuments({
+      user: req.user.id,
+      expirationDate: {
+        $gte: today,
+        $lte: thirtyDaysFromNow
+      }
+    });
+    
+    const expired = await Warranty.countDocuments({
+      user: req.user.id,
+      expirationDate: { $lt: today }
+    });
+    
+    res.json({
+      total,
+      active,
+      expiring,
+      expired
+    });
+  } catch (error) {
+    logger.error(`Error getting warranty stats: ${error.message}`);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+/**
+ * Get warranty by ID
+ */
+exports.getWarrantyById = async (req, res) => {
+  try {
+    const warranty = await Warranty.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    }).populate('product', 'name brand category');
     
     if (!warranty) {
       return res.status(404).json({ message: 'Warranty not found' });
     }
     
-    // Check if warranty belongs to current user or user is admin
-    if (warranty.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to access this warranty' });
-    }
-    
-    res.status(200).json({ warranty });
+    res.json(warranty);
   } catch (error) {
+    logger.error(`Error getting warranty by ID: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Create new warranty
-const createWarranty = async (req, res) => {
+/**
+ * Create a new warranty
+ */
+exports.createWarranty = async (req, res) => {
   try {
     const {
       product,
@@ -71,242 +120,178 @@ const createWarranty = async (req, res) => {
       warrantyProvider,
       warrantyNumber,
       coverageDetails,
-      notes
+      notes,
+      documents = []
     } = req.body;
     
-    // Check if product exists
-    const productExists = await Product.findById(product);
-    if (!productExists) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-    
-    // Create warranty
     const warranty = new Warranty({
-      user: req.user._id,
+      user: req.user.id,
       product,
       purchaseDate,
       expirationDate,
       warrantyProvider,
       warrantyNumber,
       coverageDetails,
-      notes
+      notes,
+      documents: documents.map(doc => ({
+        filename: doc.path.split('/').pop(),
+        originalName: doc.name,
+        path: doc.path,
+        mimetype: doc.path.split('.').pop() || 'application/octet-stream',
+        size: 0, // Size is unknown from frontend
+        uploadedAt: doc.uploadDate || new Date().toISOString()
+      }))
     });
     
     await warranty.save();
     
-    res.status(201).json({
-      message: 'Warranty created successfully',
-      warranty
-    });
+    // Populate the product information before sending the response
+    await warranty.populate('product', 'name brand category');
+    
+    res.status(201).json(warranty);
   } catch (error) {
+    logger.error(`Error creating warranty: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Update warranty
-const updateWarranty = async (req, res) => {
+/**
+ * Update a warranty
+ */
+exports.updateWarranty = async (req, res) => {
   try {
+    const warranty = await Warranty.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    });
+    
+    if (!warranty) {
+      return res.status(404).json({ message: 'Warranty not found' });
+    }
+    
     const {
       purchaseDate,
       expirationDate,
       warrantyProvider,
       warrantyNumber,
       coverageDetails,
-      notes
+      notes,
+      status
     } = req.body;
     
-    // Find warranty
-    const warranty = await Warranty.findById(req.params.id);
-    if (!warranty) {
-      return res.status(404).json({ message: 'Warranty not found' });
-    }
-    
-    // Check if warranty belongs to current user or user is admin
-    if (warranty.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to update this warranty' });
-    }
-    
-    // Update fields
     if (purchaseDate) warranty.purchaseDate = purchaseDate;
     if (expirationDate) warranty.expirationDate = expirationDate;
     if (warrantyProvider) warranty.warrantyProvider = warrantyProvider;
     if (warrantyNumber) warranty.warrantyNumber = warrantyNumber;
     if (coverageDetails) warranty.coverageDetails = coverageDetails;
     if (notes !== undefined) warranty.notes = notes;
+    if (status) warranty.status = status;
     
     await warranty.save();
     
-    res.status(200).json({
-      message: 'Warranty updated successfully',
-      warranty
-    });
+    res.json(warranty);
   } catch (error) {
+    logger.error(`Error updating warranty: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Delete warranty
-const deleteWarranty = async (req, res) => {
+/**
+ * Delete a warranty
+ */
+exports.deleteWarranty = async (req, res) => {
   try {
-    // Find warranty
-    const warranty = await Warranty.findById(req.params.id);
+    const warranty = await Warranty.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    });
+    
     if (!warranty) {
       return res.status(404).json({ message: 'Warranty not found' });
     }
     
-    // Check if warranty belongs to current user or user is admin
-    if (warranty.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to delete this warranty' });
-    }
+    await warranty.remove();
     
-    // Delete warranty documents if any
-    if (warranty.documents && warranty.documents.length > 0) {
-      warranty.documents.forEach(doc => {
-        const docPath = path.join(process.env.UPLOAD_PATH || './uploads', path.basename(doc.path));
-        if (fs.existsSync(docPath)) {
-          fs.unlinkSync(docPath);
-        }
-      });
-    }
-    
-    await Warranty.findByIdAndDelete(req.params.id);
-    
-    res.status(200).json({ message: 'Warranty deleted successfully' });
+    res.json({ message: 'Warranty deleted successfully' });
   } catch (error) {
+    logger.error(`Error deleting warranty: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Upload warranty document
-const uploadDocument = async (req, res) => {
+/**
+ * Upload a document for a warranty
+ */
+exports.uploadDocument = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    // Find warranty
-    const warranty = await Warranty.findById(req.params.id);
-    if (!warranty) {
-      return res.status(404).json({ message: 'Warranty not found' });
-    }
+    const warranty = await Warranty.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    });
     
-    // Check if warranty belongs to current user or user is admin
-    if (warranty.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to update this warranty' });
+    if (!warranty) {
+      // Delete the uploaded file if warranty not found
+      fs.unlinkSync(req.file.path);
+      return res.status(404).json({ message: 'Warranty not found' });
     }
     
     // Add document to warranty
     warranty.documents.push({
-      name: req.file.originalname,
-      path: `/uploads/${req.file.filename}`,
-      uploadDate: Date.now()
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      path: req.file.path,
+      mimetype: req.file.mimetype,
+      size: req.file.size
     });
     
     await warranty.save();
     
-    res.status(200).json({
-      message: 'Document uploaded successfully',
-      document: warranty.documents[warranty.documents.length - 1]
-    });
+    res.json(warranty);
   } catch (error) {
+    logger.error(`Error uploading document: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
-// Delete warranty document
-const deleteDocument = async (req, res) => {
+/**
+ * Delete a document from a warranty
+ */
+exports.deleteDocument = async (req, res) => {
   try {
-    const { documentId } = req.params;
+    const warranty = await Warranty.findOne({
+      _id: req.params.id,
+      user: req.user.id
+    });
     
-    // Find warranty
-    const warranty = await Warranty.findById(req.params.id);
     if (!warranty) {
       return res.status(404).json({ message: 'Warranty not found' });
     }
     
-    // Check if warranty belongs to current user or user is admin
-    if (warranty.user.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized to update this warranty' });
-    }
+    // Find the document in the warranty
+    const document = warranty.documents.id(req.params.documentId);
     
-    // Find document
-    const document = warranty.documents.id(documentId);
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
     }
     
-    // Delete file
-    const docPath = path.join(process.env.UPLOAD_PATH || './uploads', path.basename(document.path));
-    if (fs.existsSync(docPath)) {
-      fs.unlinkSync(docPath);
+    // Delete the file from the filesystem
+    try {
+      fs.unlinkSync(document.path);
+    } catch (err) {
+      logger.warn(`Could not delete file: ${err.message}`);
     }
     
-    // Remove document from warranty
-    warranty.documents.pull(documentId);
+    // Remove the document from the warranty
+    document.remove();
     await warranty.save();
     
-    res.status(200).json({ message: 'Document deleted successfully' });
+    res.json({ message: 'Document deleted successfully' });
   } catch (error) {
+    logger.error(`Error deleting document: ${error.message}`);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
-
-// Get warranty statistics
-const getWarrantyStats = async (req, res) => {
-  try {
-    const userId = req.user._id;
-    
-    // Get total count
-    const totalCount = await Warranty.countDocuments({ user: userId });
-    
-    // Get active count
-    const activeCount = await Warranty.countDocuments({ 
-      user: userId,
-      status: 'active'
-    });
-    
-    // Get expiring count
-    const expiringCount = await Warranty.countDocuments({ 
-      user: userId,
-      status: 'expiring'
-    });
-    
-    // Get expired count
-    const expiredCount = await Warranty.countDocuments({ 
-      user: userId,
-      status: 'expired'
-    });
-    
-    // Get warranties by category
-    const warranties = await Warranty.find({ user: userId }).populate('product');
-    
-    const categoryCounts = {};
-    warranties.forEach(warranty => {
-      if (warranty.product && warranty.product.category) {
-        const category = warranty.product.category;
-        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-      }
-    });
-    
-    res.status(200).json({
-      totalCount,
-      activeCount,
-      expiringCount,
-      expiredCount,
-      categoryCounts
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-module.exports = {
-  getAllWarranties,
-  getWarrantyById,
-  createWarranty,
-  updateWarranty,
-  deleteWarranty,
-  uploadDocument,
-  deleteDocument,
-  getWarrantyStats
-}; 

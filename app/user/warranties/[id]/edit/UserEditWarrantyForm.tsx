@@ -10,29 +10,58 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Save } from "lucide-react"
+import { ArrowLeft, Save, AlertTriangle } from "lucide-react"
+import { Warranty } from "@/types/warranty"
+import { warrantyApi } from "@/lib/api"
+import { useAuth } from "@/lib/auth-context"
 
 // Dynamically import the sidebar to reduce initial bundle size
 const WarrantySidebar = dynamic(() => import("../../components/sidebar"), {
   loading: () => <div className="w-64 bg-amber-100 border-r-4 border-amber-800" />
 })
 
-// Move mock data outside component to prevent re-creation
-const mockWarranty = {
-  id: 3,
-  product: "MacBook Pro",
-  category: "electronics",
-  purchaseDate: "2022-05-20",
-  startDate: "2022-05-20",
-  endDate: "2023-08-25",
-  price: "1999",
-  status: "expiring",
-  provider: "Apple Inc.",
-  type: "limited",
-  terms: "1 year limited warranty with option to extend",
-  extendable: "yes",
-  claimProcess: "Contact Apple Support or visit an Apple Store with proof of purchase.",
-  coverageDetails: "Covers manufacturing defects, battery service, and up to two incidents of accidental damage protection every 12 months."
+// Default empty warranty data for initialization
+const emptyWarranty = {
+  id: "",
+  _id: "",
+  product: { 
+    name: "", 
+    manufacturer: "",
+    _id: "" 
+  },
+  purchaseDate: "",
+  expirationDate: "",
+  warrantyProvider: "",
+  warrantyNumber: "",
+  coverageDetails: "",
+  documents: [],
+  status: "active" as const,
+  notes: "",
+  user: "",
+  createdAt: "",
+  updatedAt: ""
+}
+
+// Utility function to format ISO date strings to yyyy-MM-dd format for date inputs
+const formatDateForInput = (isoDateString: string | undefined): string => {
+  if (!isoDateString) return '';
+  const date = new Date(isoDateString);
+  return date.toISOString().split('T')[0]; // Returns YYYY-MM-DD
+}
+
+// Utility function to safely get nested property values
+const safelyGetNestedValue = (obj: any, path: string, defaultValue: string = ''): string => {
+  if (!obj) return defaultValue;
+  
+  const keys = path.split('.');
+  let current = obj;
+  
+  for (const key of keys) {
+    if (current === undefined || current === null) return defaultValue;
+    current = current[key];
+  }
+  
+  return current !== undefined && current !== null ? String(current) : defaultValue;
 }
 
 interface Props {
@@ -41,15 +70,95 @@ interface Props {
 
 export default function UserEditWarrantyForm({ warrantyId }: Props) {
   const router = useRouter()
-  const [formData, setFormData] = useState(mockWarranty) // Initialize with mock data
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth()
+  const [formData, setFormData] = useState<Partial<Warranty>>(emptyWarranty)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Fetch warranty details when component mounts
+  useEffect(() => {
+    const fetchWarrantyDetails = async () => {
+      if (!warrantyId) {
+        setError("No warranty ID provided")
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        
+        // Use the warrantyApi utility which handles authentication automatically
+        const response = await warrantyApi.getWarrantyById(warrantyId)
+        
+        if (response.error) {
+          console.error('Error fetching warranty details:', response.error)
+          setError(response.error)
+          setIsLoading(false)
+          return
+        }
+        
+        // The response data might be the warranty object directly or nested in a property
+        const warrantyData = response.data
+        console.log('Fetched warranty data:', warrantyData)
+        
+        if (!warrantyData) {
+          setError("No warranty data found")
+          setIsLoading(false)
+          return
+        }
+        
+        setFormData(warrantyData)
+        setIsLoading(false)
+      } catch (err) {
+        console.error('Error in fetchWarrantyDetails:', err)
+        setError(err instanceof Error ? err.message : 'An unknown error occurred')
+        setIsLoading(false)
+      }
+    }
+
+    if (!authLoading && isAuthenticated) {
+      fetchWarrantyDetails()
+    } else if (!authLoading && !isAuthenticated) {
+      router.replace('/login')
+    }
+  }, [warrantyId, authLoading, isAuthenticated, router])
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }))
+    
+    // Special handling for date inputs
+    if (e.target.type === 'date') {
+      // Convert YYYY-MM-DD to ISO format for storage
+      const isoDate = value ? new Date(value).toISOString() : '';
+      setFormData(prev => ({
+        ...prev,
+        [name]: isoDate
+      }))
+    } else if (name.includes('.')) {
+      // Handle nested properties like product.name
+      const [parent, child] = name.split('.')
+      
+      if (parent === 'product') {
+        setFormData(prev => {
+          // Ensure prev.product exists and has the required properties
+          const currentProduct = prev.product || { _id: "", name: "", manufacturer: "" };
+          
+          return {
+            ...prev,
+            product: {
+              ...currentProduct,
+              [child]: value
+            }
+          };
+        });
+      }
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        [name]: value
+      }))
+    }
   }
   
   const handleSelectChange = (name: string, value: string) => {
@@ -109,8 +218,8 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                     <Label htmlFor="product" className="text-amber-900">Product Name</Label>
                     <Input
                       id="product"
-                      name="product"
-                      value={formData.product}
+                      name="product.name"
+                      value={safelyGetNestedValue(formData, 'product.name')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
                       required
@@ -119,31 +228,11 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="category" className="text-amber-900">Category</Label>
-                    <Select
-                      value={formData.category}
-                      onValueChange={(value) => handleSelectChange("category", value)}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                        <SelectValue placeholder="Select category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="electronics">Electronics</SelectItem>
-                        <SelectItem value="appliances">Appliances</SelectItem>
-                        <SelectItem value="furniture">Furniture</SelectItem>
-                        <SelectItem value="automotive">Automotive</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="provider" className="text-amber-900">Provider/Manufacturer</Label>
+                    <Label htmlFor="manufacturer" className="text-amber-900">Manufacturer</Label>
                     <Input
-                      id="provider"
-                      name="provider"
-                      value={formData.provider}
+                      id="manufacturer"
+                      name="product.manufacturer"
+                      value={safelyGetNestedValue(formData, 'product.manufacturer')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
                       required
@@ -152,63 +241,25 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="price" className="text-amber-900">Product Price</Label>
+                    <Label htmlFor="warrantyProvider" className="text-amber-900">Warranty Provider</Label>
                     <Input
-                      id="price"
-                      name="price"
-                      value={formData.price}
+                      id="warrantyProvider"
+                      name="warrantyProvider"
+                      value={safelyGetNestedValue(formData, 'warrantyProvider')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
-                      placeholder="e.g. 1999"
+                      required
                       disabled={isSubmitting}
                     />
                   </div>
                   
-                  <div className="space-y-2">
-                    <Label htmlFor="type" className="text-amber-900">Warranty Type</Label>
-                    <Select
-                      value={formData.type}
-                      onValueChange={(value) => handleSelectChange("type", value)}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="limited">Limited</SelectItem>
-                        <SelectItem value="lifetime">Lifetime</SelectItem>
-                        <SelectItem value="extended">Extended</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="extendable" className="text-amber-900">Extendable</Label>
-                    <Select
-                      value={formData.extendable}
-                      onValueChange={(value) => handleSelectChange("extendable", value)}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                        <SelectValue placeholder="Is this warranty extendable?" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="yes">Yes</SelectItem>
-                        <SelectItem value="no">No</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                
-                <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="purchaseDate" className="text-amber-900">Purchase Date</Label>
                     <Input
                       id="purchaseDate"
                       name="purchaseDate"
                       type="date"
-                      value={formData.purchaseDate}
+                      value={formatDateForInput(formData.purchaseDate)}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
                       required
@@ -217,41 +268,30 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="startDate" className="text-amber-900">Warranty Start Date</Label>
+                    <Label htmlFor="expirationDate" className="text-amber-900">Expiration Date</Label>
                     <Input
-                      id="startDate"
-                      name="startDate"
+                      id="expirationDate"
+                      name="expirationDate"
                       type="date"
-                      value={formData.startDate}
+                      value={formatDateForInput(formData.expirationDate)}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
                       required
                       disabled={isSubmitting}
                     />
                   </div>
-                  
+                </div>
+                
+                <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="endDate" className="text-amber-900">Warranty End Date</Label>
+                    <Label htmlFor="warrantyNumber" className="text-amber-900">Warranty Number</Label>
                     <Input
-                      id="endDate"
-                      name="endDate"
-                      type="date"
-                      value={formData.endDate}
+                      id="warrantyNumber"
+                      name="warrantyNumber"
+                      value={safelyGetNestedValue(formData, 'warrantyNumber')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50"
                       required
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="terms" className="text-amber-900">Warranty Terms</Label>
-                    <Textarea
-                      id="terms"
-                      name="terms"
-                      value={formData.terms}
-                      onChange={handleInputChange}
-                      className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
                       disabled={isSubmitting}
                     />
                   </div>
@@ -261,7 +301,7 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                     <Textarea
                       id="coverageDetails"
                       name="coverageDetails"
-                      value={formData.coverageDetails}
+                      value={safelyGetNestedValue(formData, 'coverageDetails')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
                       disabled={isSubmitting}
@@ -269,11 +309,11 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="claimProcess" className="text-amber-900">Claim Process</Label>
+                    <Label htmlFor="notes" className="text-amber-900">Notes</Label>
                     <Textarea
-                      id="claimProcess"
-                      name="claimProcess"
-                      value={formData.claimProcess}
+                      id="notes"
+                      name="notes"
+                      value={safelyGetNestedValue(formData, 'notes')}
                       onChange={handleInputChange}
                       className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
                       disabled={isSubmitting}
@@ -307,4 +347,4 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
       </div>
     </div>
   )
-} 
+}

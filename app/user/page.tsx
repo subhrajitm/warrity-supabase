@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context"
 // Define warranty type
 interface Warranty {
   id: number;
+  _id: string;
   product: string;
   category: string;
   provider: string;
@@ -34,6 +35,7 @@ interface Warranty {
 const mockWarranties: Warranty[] = [
   {
     id: 1,
+    _id: "1",
     product: "Samsung TV",
     category: "electronics",
     provider: "Samsung Electronics",
@@ -43,6 +45,7 @@ const mockWarranties: Warranty[] = [
   },
   {
     id: 2,
+    _id: "2",
     product: "Dyson Vacuum",
     category: "appliances",
     provider: "Dyson Inc.",
@@ -52,6 +55,7 @@ const mockWarranties: Warranty[] = [
   },
   {
     id: 3,
+    _id: "3",
     product: "MacBook Pro",
     category: "electronics",
     provider: "Apple Inc.",
@@ -192,8 +196,12 @@ export default function UserDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {expiringWarranties.map(warranty => (
-                    <Link key={warranty.id} href={`/user/warranties/${warranty.id}`}>
+                  {expiringWarranties.map(warranty => {
+                    // Use _id if available, fall back to id
+                    const warrantyId = warranty._id || warranty.id;
+                    
+                    return (
+                    <Link key={warrantyId} href={`/user/warranties/${warrantyId}`}>
                       <div className="flex justify-between items-center p-4 border-2 border-amber-800 rounded-lg bg-amber-50 hover:bg-amber-200 transition-colors">
                         <div className="flex items-center">
                           <div className="mr-4">
@@ -216,7 +224,8 @@ export default function UserDashboard() {
                         </div>
                       </div>
                     </Link>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -246,8 +255,12 @@ export default function UserDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {warranties.slice(0, 3).map(warranty => (
-                    <Link key={warranty.id} href={`/user/warranties/${warranty.id}`}>
+                  {warranties.slice(0, 3).map(warranty => {
+                    // Use _id if available, fall back to id
+                    const warrantyId = warranty._id || warranty.id;
+                    
+                    return (
+                    <Link key={warrantyId} href={`/user/warranties/${warrantyId}`}>
                       <div className="flex justify-between items-center p-4 border-2 border-amber-800 rounded-lg bg-amber-50 hover:bg-amber-200 transition-colors">
                         <div className="flex items-center">
                           <div className="mr-4">
@@ -271,7 +284,8 @@ export default function UserDashboard() {
                         </div>
                       </div>
                     </Link>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>

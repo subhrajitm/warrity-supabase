@@ -10,57 +10,9 @@ import { Separator } from "@/components/ui/separator"
 import { CalendarIcon, Clock, Edit, Trash2, AlertTriangle, CheckCircle, ArrowLeft, User } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
-// Mock data for demonstration
-const mockWarranty = {
-  id: 3,
-  product: "MacBook Pro",
-  category: "Electronics",
-  purchaseDate: "2022-05-20",
-  startDate: "2022-05-20",
-  endDate: "2023-08-25",
-  price: "$1,999",
-  status: "expiring",
-  provider: "Apple Inc.",
-  type: "limited",
-  terms: "1 year limited warranty with option to extend",
-  extendable: "yes",
-  claimProcess: "Contact Apple Support or visit an Apple Store with proof of purchase.",
-  coverageDetails: "Covers manufacturing defects, battery service, and up to two incidents of accidental damage protection every 12 months.",
-  user: {
-    id: 5,
-    name: "Emily Johnson",
-    email: "emily.johnson@example.com"
-  },
-  documents: [],
-  notes: ""
-}
-
-interface Warranty {
-  id: number;
-  product: string;
-  category: string;
-  purchaseDate: string;
-  startDate: string;
-  endDate: string;
-  status: string;
-  provider: string;
-  type: string;
-  terms: string;
-  extendable: string;
-  coverageDetails: string;
-  claimProcess: string;
-  user: {
-    id: number;
-    name: string;
-    email: string;
-  };
-  price: string;
-  documents: Array<{
-    name: string;
-    url: string;
-  }>;
-  notes: string;
-}
+import { adminApi, warrantyApi } from "@/lib/api"
+import { toast } from "sonner"
+import type { Warranty } from "@/types/warranty"
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -80,12 +32,7 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
       } else if (user?.role !== 'admin') {
         router.replace(user?.role === 'user' ? '/user' : '/login')
       } else {
-        // In a real app, you would fetch the warranty data based on the ID
-        console.log(`Fetching warranty with ID: ${warrantyId}`)
-        
-        // Set mock data
-        setWarranty(mockWarranty)
-        setIsLoading(false)
+        fetchWarrantyDetails()
       }
     }
   }, [router, warrantyId, authLoading, isAuthenticated, user])
@@ -122,13 +69,43 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
     }
   }
   
-  const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this warranty?")) {
-      console.log(`Deleting warranty with ID: ${warrantyId}`)
-      // In a real app, you would send a delete request to your backend
-      
-      // Redirect to warranties list
+  const fetchWarrantyDetails = async () => {
+    try {
+      const response = await warrantyApi.getWarrantyById(warrantyId)
+      if (response.error) {
+        toast.error('Failed to fetch warranty: ' + response.error)
+        router.push('/admin/warranties')
+        return
+      }
+      if (response.data?.warranty) {
+        setWarranty(response.data.warranty)
+      } else {
+        toast.error('Warranty not found')
+        router.push('/admin/warranties')
+      }
+    } catch (error) {
+      toast.error('An error occurred while fetching warranty')
+      console.error('Error fetching warranty:', error)
       router.push('/admin/warranties')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (confirm("Are you sure you want to delete this warranty?")) {
+      try {
+        const response = await warrantyApi.deleteWarranty(warrantyId)
+        if (response.error) {
+          toast.error('Failed to delete warranty: ' + response.error)
+          return
+        }
+        toast.success('Warranty deleted successfully')
+        router.push('/admin/warranties')
+      } catch (error) {
+        toast.error('An error occurred while deleting the warranty')
+        console.error('Error deleting warranty:', error)
+      }
     }
   }
   
@@ -175,10 +152,10 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
           <div className="flex justify-between items-center">
             <div>
               <CardTitle className="text-3xl font-bold text-[rgb(146,64,14)] font-mono tracking-tight">
-                {warranty.product}
+                {warranty.product?.name || 'Unknown Product'}
               </CardTitle>
               <CardDescription className="text-amber-800 font-medium">
-                {warranty.category} • {warranty.provider}
+                {warranty.product?.manufacturer || 'Unknown Manufacturer'} • {warranty.warrantyProvider}
               </CardDescription>
             </div>
             <div>
@@ -195,14 +172,10 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
             </h3>
             <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
               <div>
-                <span className="text-amber-700">Name:</span>{" "}
-                <Link href={`/admin/users/${warranty.user.id}`} className="text-amber-900 font-medium hover:underline">
-                  {warranty.user.name}
-                </Link>
-              </div>
-              <div>
-                <span className="text-amber-700">Email:</span>{" "}
-                <span className="text-amber-900 font-medium">{warranty.user.email}</span>
+                <span className="text-amber-700">User ID:</span>{" "}
+                <span className="text-amber-900 font-medium">
+                  {warranty.user}
+                </span>
               </div>
             </div>
           </div>
@@ -213,24 +186,20 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
                 <h3 className="text-lg font-semibold text-amber-900 mb-2">Warranty Details</h3>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-amber-700">Type:</span>
-                    <span className="text-amber-900 font-medium">{warranty.type.charAt(0).toUpperCase() + warranty.type.slice(1)}</span>
+                    <span className="text-amber-700">Purchase Date:</span>
+                    <span className="text-amber-900 font-medium">{new Date(warranty.purchaseDate).toLocaleDateString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-amber-700">Start Date:</span>
-                    <span className="text-amber-900 font-medium">{warranty.startDate}</span>
+                    <span className="text-amber-700">Expiration Date:</span>
+                    <span className="text-amber-900 font-medium">{new Date(warranty.expirationDate).toLocaleDateString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-amber-700">End Date:</span>
-                    <span className="text-amber-900 font-medium">{warranty.endDate}</span>
+                    <span className="text-amber-700">Warranty Number:</span>
+                    <span className="text-amber-900 font-medium">{warranty.warrantyNumber}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-amber-700">Extendable:</span>
-                    <span className="text-amber-900 font-medium">{warranty.extendable === 'yes' ? 'Yes' : 'No'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-amber-700">Product Price:</span>
-                    <span className="text-amber-900 font-medium">{warranty.price}</span>
+                    <span className="text-amber-700">Warranty Provider:</span>
+                    <span className="text-amber-900 font-medium">{warranty.warrantyProvider}</span>
                   </div>
                 </div>
               </div>
@@ -238,23 +207,42 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
               <Separator className="bg-amber-300" />
               
               <div>
-                <h3 className="text-lg font-semibold text-amber-900 mb-2">Terms</h3>
-                <p className="text-amber-900">{warranty.terms}</p>
+                <h3 className="text-lg font-semibold text-amber-900 mb-2">Coverage Details</h3>
+                <p className="text-amber-900">{warranty.coverageDetails}</p>
               </div>
             </div>
             
             <div className="space-y-4">
               <div>
-                <h3 className="text-lg font-semibold text-amber-900 mb-2">Coverage Details</h3>
-                <p className="text-amber-900">{warranty.coverageDetails}</p>
+                <h3 className="text-lg font-semibold text-amber-900 mb-2">Documents</h3>
+                {warranty.documents.length > 0 ? (
+                  <div className="space-y-2">
+                    {warranty.documents.map((doc) => (
+                      <div key={`${doc.name}-${doc.path}`} className="flex justify-between items-center">
+                        <span className="text-amber-900">{doc.name}</span>
+                        <Link 
+                          href={doc.path} 
+                          target="_blank" 
+                          className="text-amber-700 hover:text-amber-900"
+                        >
+                          View Document
+                        </Link>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-amber-700">No documents attached</p>
+                )}
               </div>
               
               <Separator className="bg-amber-300" />
               
-              <div>
-                <h3 className="text-lg font-semibold text-amber-900 mb-2">Claim Process</h3>
-                <p className="text-amber-900">{warranty.claimProcess}</p>
-              </div>
+              {warranty.notes && (
+                <div>
+                  <h3 className="text-lg font-semibold text-amber-900 mb-2">Notes</h3>
+                  <p className="text-amber-900 whitespace-pre-wrap">{warranty.notes}</p>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -283,6 +271,22 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
 
 export default function AdminWarrantyDetailsPage({ params }: PageProps) {
   const resolvedParams = React.use(params)
+  const warrantyId = resolvedParams?.id
+  
+  if (!warrantyId) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-amber-900">Invalid Warranty ID</h2>
+          <p className="mt-2 text-amber-800">No warranty ID was provided.</p>
+          <Link href="/admin/warranties" className="mt-4 inline-flex items-center text-amber-800 hover:text-amber-600">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Warranties
+          </Link>
+        </div>
+      </div>
+    )
+  }
   
   return (
     <Suspense fallback={
@@ -292,7 +296,7 @@ export default function AdminWarrantyDetailsPage({ params }: PageProps) {
         </div>
       </div>
     }>
-      <WarrantyDetails warrantyId={resolvedParams.id} />
+      <WarrantyDetails warrantyId={warrantyId} />
     </Suspense>
   )
 }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Edit, Trash2, AlertTriangle, CheckCircle2, Clock } from "lucide-react"
+import { ArrowLeft, Edit, Trash2 } from "lucide-react"
 import { 
   Dialog,
   DialogContent,
@@ -18,70 +18,36 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 
-interface Product {
-  id: number;
-  name: string;
-  category: string;
-  price: number;
-  description: string;
-  sku: string;
-  stock: number;
-  status: string;
-  warrantyPeriod: string;
-  warrantyTerms: string;
-  createdAt: string;
-  updatedAt: string;
-  images: string[];
-  specifications: Array<{ name: string; value: string; }>;
-}
+import { Product } from "@/types/product"
+import { productApi } from "@/lib/api"
+import { toast } from "sonner"
 
 interface Props {
   product: Product;
-  productId: string;
 }
 
-export default function AdminProductDetails({ product, productId }: Props) {
+export default function AdminProductDetails({ product }: Props) {
   const router = useRouter()
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return (
-          <Badge className="bg-green-100 text-green-800 border-green-300 hover:bg-green-200">
-            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-            Active
-          </Badge>
-        )
-      case 'inactive':
-        return (
-          <Badge className="bg-red-100 text-red-800 border-red-300 hover:bg-red-200">
-            <AlertTriangle className="w-3.5 h-3.5 mr-1" />
-            Inactive
-          </Badge>
-        )
-      case 'low_stock':
-        return (
-          <Badge className="bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200">
-            <Clock className="w-3.5 h-3.5 mr-1" />
-            Low Stock
-          </Badge>
-        )
-      default:
-        return (
-          <Badge className="bg-gray-100 text-gray-800 border-gray-300 hover:bg-gray-200">
-            {status}
-          </Badge>
-        )
+  const handleDelete = async () => {
+    try {
+      setIsDeleting(true)
+      const response = await productApi.deleteProduct(product.id)
+      if (response.error) {
+        toast.error('Failed to delete product: ' + response.error)
+        return
+      }
+      toast.success('Product deleted successfully')
+      router.push('/admin/products')
+    } catch (error) {
+      toast.error('An error occurred while deleting the product')
+      console.error('Error deleting product:', error)
+    } finally {
+      setIsDeleting(false)
+      setDeleteDialogOpen(false)
     }
-  }
-  
-  const handleDelete = () => {
-    console.log(`Deleting product with ID: ${productId}`)
-    // In a real app, you would send a delete request to your backend
-    
-    // Redirect to products list
-    router.push('/admin/products')
   }
   
   return (
@@ -97,7 +63,7 @@ export default function AdminProductDetails({ product, productId }: Props) {
         <h1 className="text-3xl font-bold text-amber-900">{product.name}</h1>
         
         <div className="flex space-x-3">
-          <Link href={`/admin/products/${productId}/edit`}>
+          <Link href={`/admin/products/${product.id}/edit`}>
             <Button className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900">
               <Edit className="mr-2 h-4 w-4" />
               Edit Product
@@ -156,75 +122,75 @@ export default function AdminProductDetails({ product, productId }: Props) {
                   </div>
                   
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">Price</h3>
-                    <p className="text-amber-900 font-semibold">${product.price.toFixed(2)}</p>
+                    <h3 className="text-sm font-medium text-amber-700">Serial Number</h3>
+                    <p className="text-amber-900 font-semibold">{product.serialNumber}</p>
                   </div>
                   
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">SKU</h3>
-                    <p className="text-amber-900 font-semibold">{product.sku}</p>
+                    <h3 className="text-sm font-medium text-amber-700">Manufacturer</h3>
+                    <p className="text-amber-900 font-semibold">{product.manufacturer || '-'}</p>
                   </div>
                   
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">Stock</h3>
-                    <p className="text-amber-900 font-semibold">{product.stock} units</p>
+                    <h3 className="text-sm font-medium text-amber-700">Model</h3>
+                    <p className="text-amber-900 font-semibold">{product.model || '-'}</p>
                   </div>
                 </div>
                 
                 <div>
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">Status</h3>
-                    <div className="mt-1">{getStatusBadge(product.status)}</div>
+                    <h3 className="text-sm font-medium text-amber-700">Purchase Date</h3>
+                    <p className="text-amber-900 font-semibold">
+                      {product.purchaseDate
+                        ? new Date(product.purchaseDate).toLocaleDateString()
+                        : '-'
+                      }
+                    </p>
                   </div>
                   
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">Warranty Period</h3>
-                    <p className="text-amber-900 font-semibold">{product.warrantyPeriod}</p>
+                    <h3 className="text-sm font-medium text-amber-700">Price</h3>
+                    <p className="text-amber-900 font-semibold">{product.price || '-'}</p>
                   </div>
                   
                   <div className="mb-4">
-                    <h3 className="text-sm font-medium text-amber-700">Created</h3>
+                    <h3 className="text-sm font-medium text-amber-700">Purchase Location</h3>
+                    <p className="text-amber-900 font-semibold">{product.purchaseLocation || '-'}</p>
+                  </div>
+                  
+                  <div className="mb-4">
+                    <h3 className="text-sm font-medium text-amber-700">Receipt Number</h3>
+                    <p className="text-amber-900 font-semibold">{product.receiptNumber || '-'}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-6">
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-amber-700">Description</h3>
+                  <p className="text-amber-900 mt-1 whitespace-pre-wrap">{product.description || '-'}</p>
+                </div>
+                
+                <div className="mb-4">
+                  <h3 className="text-sm font-medium text-amber-700">Notes</h3>
+                  <p className="text-amber-900 mt-1 whitespace-pre-wrap">{product.notes || '-'}</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-amber-800">
+                  <div>
+                    <h3 className="text-sm font-medium text-amber-700">Created At</h3>
                     <p className="text-amber-900 font-semibold">
                       {new Date(product.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                   
-                  <div className="mb-4">
+                  <div>
                     <h3 className="text-sm font-medium text-amber-700">Last Updated</h3>
                     <p className="text-amber-900 font-semibold">
                       {new Date(product.updatedAt).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
-              </div>
-              
-              <div className="mt-2">
-                <h3 className="text-sm font-medium text-amber-700">Description</h3>
-                <p className="text-amber-900 mt-1">{product.description}</p>
-              </div>
-              
-              <div className="mt-4">
-                <h3 className="text-sm font-medium text-amber-700">Warranty Terms</h3>
-                <p className="text-amber-900 mt-1">{product.warrantyTerms}</p>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-            <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-              <CardTitle className="text-2xl font-bold text-amber-900">
-                Specifications
-              </CardTitle>
-            </CardHeader>
-            
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {product.specifications.map((spec, index) => (
-                  <div key={index} className="border-2 border-amber-800 rounded-lg p-3 bg-amber-50">
-                    <h4 className="text-sm font-medium text-amber-700">{spec.name}</h4>
-                    <p className="text-amber-900 font-semibold mt-1">{spec.value}</p>
-                  </div>
-                ))}
               </div>
             </CardContent>
           </Card>
@@ -240,7 +206,7 @@ export default function AdminProductDetails({ product, productId }: Props) {
             
             <CardContent className="p-6">
               <div className="space-y-4">
-                {product.images.map((image, index) => (
+                {product.images?.map((image: string, index: number) => (
                   <div key={index} className="border-2 border-amber-800 rounded-lg overflow-hidden">
                     <img src={image} alt={`${product.name} - Image ${index + 1}`} className="w-full h-auto" />
                   </div>

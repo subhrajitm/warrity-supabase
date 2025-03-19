@@ -18,12 +18,17 @@ import {
   SortDesc,
   Mail,
   Calendar,
-  Shield
+  Shield,
+  FileText // Add this import for the view icon
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { adminApi } from "@/lib/api"
+import { toast } from "sonner"
 
 // Define User interface
+// Update the UserData interface to include _id
 interface UserData {
+  _id?: string; // Add this for MongoDB documents
   id: number;
   name: string;
   email: string;
@@ -91,7 +96,7 @@ export default function AdminUsersPage() {
   const [sortField, setSortField] = useState<keyof UserData>("name")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
   
-  // Check if admin is logged in
+  // Check if admin is logged in and fetch users
   useEffect(() => {
     if (!authLoading) {
       if (!isAuthenticated) {
@@ -99,11 +104,36 @@ export default function AdminUsersPage() {
       } else if (authUser?.role !== 'admin') {
         router.replace(authUser?.role === 'user' ? '/user' : '/login')
       } else {
-        // In a real app, you would fetch the users from your backend
-        setUsers(mockUsers)
+        fetchUsers()
       }
     }
   }, [router, authLoading, isAuthenticated, authUser])
+  
+  // Function to fetch users
+  const fetchUsers = async () => {
+    try {
+      const response = await adminApi.getAllUsers()
+      if (response.error) {
+        toast.error('Failed to fetch users: ' + response.error)
+        return
+      }
+      if (response.data?.users) {
+        // Admin API returns array of users
+        const userList = response.data.users
+        
+        // Debug: Check if any users are missing IDs
+        const missingIds = userList.filter(u => !u._id)
+        if (missingIds.length > 0) {
+          console.warn('Some users are missing _id:', missingIds)
+        }
+        
+        setUsers(userList)
+      }
+    } catch (error) {
+      toast.error('An error occurred while fetching users')
+      console.error('Error fetching users:', error)
+    }
+  }
   
   // Filter and sort users
   useEffect(() => {
@@ -154,13 +184,13 @@ export default function AdminUsersPage() {
     }
   }
   
-  const handleDelete = (id: number) => {
+  const handleDelete = (id: string | number) => {
     if (confirm("Are you sure you want to delete this user? This action cannot be undone.")) {
       // In a real app, you would send a delete request to your backend
       console.log(`Deleting user with ID: ${id}`)
       
-      // Update local state
-      setUsers(users.filter(user => user.id !== id))
+      // Update local state - handle both id and _id cases
+      setUsers(users.filter(user => (user._id || user.id) !== id))
     }
   }
   
@@ -311,7 +341,7 @@ export default function AdminUsersPage() {
                 </thead>
                 <tbody>
                   {filteredUsers.map(user => (
-                    <tr key={user.id} className="border-b border-amber-300 hover:bg-amber-50">
+                    <tr key={user._id || user.id} className="border-b border-amber-300 hover:bg-amber-50">
                       <td className="py-3 px-4 text-amber-900 font-medium">{user.name}</td>
                       <td className="py-3 px-4">
                         <div className="flex items-center text-amber-800">
@@ -330,7 +360,17 @@ export default function AdminUsersPage() {
                       <td className="py-3 px-4 text-amber-800">{user.warranties}</td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex justify-end space-x-2">
-                          <Link href={`/admin/users/${user.id}/edit`}>
+                          {/* Add View Details button */}
+                          <Link href={`/admin/users/${user._id || user.id}`}>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="border-2 border-amber-800 text-amber-800 h-8 px-2"
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Link href={`/admin/users/${user._id || user.id}/edit`}>
                             <Button size="sm" variant="outline" className="border-2 border-amber-800 text-amber-800 h-8 px-2">
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -339,7 +379,7 @@ export default function AdminUsersPage() {
                             size="sm" 
                             variant="outline" 
                             className="border-2 border-red-800 text-red-800 h-8 px-2 hover:bg-red-100"
-                            onClick={() => handleDelete(user.id)}
+                            onClick={() => handleDelete(user._id || user.id)}
                             disabled={user.role === 'admin'} // Prevent deleting admin users
                           >
                             <Trash2 className="h-4 w-4" />

@@ -22,65 +22,11 @@ import {
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
-// Define Warranty interface
-interface Warranty {
-  id: number;
-  productName: string;
-  manufacturer: string;
-  startDate: string;
-  endDate: string;
-  status: "active" | "expiring" | "expired";
-  user: string;
-}
+import { adminApi, warrantyApi } from "@/lib/api"
+import { toast } from "sonner"
 
-// Mock warranties for demonstration
-const mockWarranties: Warranty[] = [
-  {
-    id: 1,
-    productName: "Samsung 55\" QLED TV",
-    manufacturer: "Samsung Electronics",
-    startDate: "2023-01-15",
-    endDate: "2025-01-15",
-    status: "active",
-    user: "John Doe"
-  },
-  {
-    id: 2,
-    productName: "Bosch Dishwasher",
-    manufacturer: "Bosch",
-    startDate: "2022-05-10",
-    endDate: "2025-05-10",
-    status: "active",
-    user: "Jane Smith"
-  },
-  {
-    id: 3,
-    productName: "MacBook Pro 16\"",
-    manufacturer: "Apple Inc.",
-    startDate: "2023-03-22",
-    endDate: "2024-03-22",
-    status: "expiring",
-    user: "Michael Johnson"
-  },
-  {
-    id: 4,
-    productName: "Dyson V11 Vacuum",
-    manufacturer: "Dyson Inc.",
-    startDate: "2022-08-05",
-    endDate: "2023-08-05",
-    status: "expired",
-    user: "Sarah Williams"
-  },
-  {
-    id: 5,
-    productName: "IKEA Sofa",
-    manufacturer: "IKEA",
-    startDate: "2022-11-30",
-    endDate: "2023-11-30",
-    status: "expired",
-    user: "David Brown"
-  }
-]
+// Import shared types
+import type { Warranty } from '@/types/warranty'
 
 export default function AdminWarrantiesPage() {
   const router = useRouter()
@@ -88,26 +34,80 @@ export default function AdminWarrantiesPage() {
   const [warranties, setWarranties] = useState<Warranty[]>([])
   const [filteredWarranties, setFilteredWarranties] = useState<Warranty[]>([])
   const [searchQuery, setSearchQuery] = useState("")
-  const [sortField, setSortField] = useState<keyof Warranty>("endDate")
+  const [sortField, setSortField] = useState<keyof Warranty | 'product.name' | 'product.manufacturer' | 'purchaseDate' | 'expirationDate'>("expirationDate")
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [isLoading, setIsLoading] = useState(true)
   
-  // Check if admin is logged in and fetch warranties
+  // Handle authentication
   useEffect(() => {
-    if (!authLoading) {
-      if (!isAuthenticated) {
-        router.replace('/login')
-      } else if (user?.role !== 'admin') {
-        router.replace(user?.role === 'user' ? '/user' : '/login')
-      } else {
-        // In a real app, you would fetch the warranties from your backend
-        setWarranties(mockWarranties)
-        setFilteredWarranties(mockWarranties)
-        setIsLoading(false)
+    if (authLoading) return
+    
+    if (!isAuthenticated) {
+      router.replace('/login')
+      return
+    }
+    if (user?.role !== 'admin') {
+      router.replace(user?.role === 'user' ? '/user' : '/login')
+      return
+    }
+  }, [isAuthenticated, user?.role, router, authLoading])
+
+  // Function to fetch warranties
+  const fetchWarranties = async () => {
+    if (authLoading || !isAuthenticated || user?.role !== 'admin') return
+    
+    try {
+      const response = await adminApi.getAllWarranties()
+      if (response.error) {
+        toast.error('Failed to fetch warranties: ' + response.error)
+        return
+      }
+      if (response.data?.warranties) {
+        // Admin API returns array of warranties
+        const warrantyList = response.data.warranties
+        
+        // Debug: Check if any warranties are missing IDs
+        const missingIds = warrantyList.filter(w => !w._id)
+        if (missingIds.length > 0) {
+          console.warn('Some warranties are missing _id:', missingIds)
+        }
+        
+        setWarranties(warrantyList)
+        setFilteredWarranties(warrantyList)
+      }
+    } catch (error) {
+      toast.error('An error occurred while fetching warranties')
+      console.error('Error fetching warranties:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch warranties initially
+  useEffect(() => {
+    fetchWarranties()
+  }, [isAuthenticated, user?.role, authLoading])
+
+  // Refetch warranties when page gains focus
+  useEffect(() => {
+    const onFocus = () => {
+      fetchWarranties()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [])
+
+  // Refetch warranties when navigating back using browser history
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchWarranties()
       }
     }
-  }, [router, authLoading, isAuthenticated, user])
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
   
   // Filter and sort warranties
   useEffect(() => {
@@ -122,21 +122,34 @@ export default function AdminWarrantiesPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       result = result.filter(warranty => 
-        warranty.productName.toLowerCase().includes(query) || 
-        warranty.manufacturer.toLowerCase().includes(query) ||
-        warranty.user.toLowerCase().includes(query)
+        (warranty.product?.name?.toLowerCase().includes(query) || false) || 
+        (warranty.product?.manufacturer?.toLowerCase().includes(query) || false) || 
+        warranty.warrantyProvider.toLowerCase().includes(query) || 
+        warranty.warrantyNumber.toLowerCase().includes(query) || 
+        warranty.notes?.toLowerCase().includes(query) || false
       )
     }
     
     // Apply sorting
     result.sort((a, b) => {
-      const valueA = a[sortField]
-      const valueB = b[sortField]
+      let valueA: string
+      let valueB: string
+      
+      if (sortField === 'product.name') {
+        valueA = a.product?.name || ''
+        valueB = b.product?.name || ''
+      } else if (sortField === 'product.manufacturer') {
+        valueA = a.product?.manufacturer || ''
+        valueB = b.product?.manufacturer || ''
+      } else {
+        valueA = String(a[sortField as keyof Warranty] || '')
+        valueB = String(b[sortField as keyof Warranty] || '')
+      }
       
       if (sortDirection === 'asc') {
-        return valueA > valueB ? 1 : -1
+        return valueA.localeCompare(valueB)
       } else {
-        return valueA < valueB ? 1 : -1
+        return valueB.localeCompare(valueA)
       }
     })
     
@@ -147,7 +160,7 @@ export default function AdminWarrantiesPage() {
     setSearchQuery(e.target.value)
   }
   
-  const handleSortChange = (field: keyof Warranty) => {
+  const handleSortChange = (field: keyof Warranty | 'product.name' | 'product.manufacturer' | 'purchaseDate' | 'expirationDate') => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
     } else {
@@ -156,7 +169,7 @@ export default function AdminWarrantiesPage() {
     }
   }
   
-  const getSortIcon = (field: keyof Warranty) => {
+  const getSortIcon = (field: keyof Warranty | 'product.name' | 'product.manufacturer' | 'purchaseDate' | 'expirationDate') => {
     if (sortField !== field) return null
     
     return sortDirection === 'asc' 
@@ -164,11 +177,20 @@ export default function AdminWarrantiesPage() {
       : <SortDesc className="h-4 w-4 ml-1" />
   }
   
-  const handleDeleteWarranty = (id: number) => {
+  const handleDeleteWarranty = async (id: string) => {
     if (confirm("Are you sure you want to delete this warranty?")) {
-      // In a real app, you would send a delete request to your backend
-      const updatedWarranties = warranties.filter(warranty => warranty.id !== id)
-      setWarranties(updatedWarranties)
+      try {
+        const response = await warrantyApi.deleteWarranty(id)
+        if (response.error) {
+          toast.error('Failed to delete warranty: ' + response.error)
+          return
+        }
+        toast.success('Warranty deleted successfully')
+        fetchWarranties()
+      } catch (error) {
+        toast.error('An error occurred while deleting the warranty')
+        console.error('Error deleting warranty:', error)
+      }
     }
   }
   
@@ -296,23 +318,23 @@ export default function AdminWarrantiesPage() {
               Sort by:
               <button 
                 className="ml-2 flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('productName')}
+                onClick={() => handleSortChange('product.name')}
               >
-                Product {getSortIcon('productName')}
+                Product {getSortIcon('product.name')}
               </button>
               <span className="mx-2">|</span>
               <button 
                 className="flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('endDate')}
+                onClick={() => handleSortChange('expirationDate')}
               >
-                Expiry Date {getSortIcon('endDate')}
+                Expiry Date {getSortIcon('expirationDate')}
               </button>
               <span className="mx-2">|</span>
               <button 
                 className="flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('user')}
+                onClick={() => handleSortChange('createdAt')}
               >
-                User {getSortIcon('user')}
+                Created {getSortIcon('createdAt')}
               </button>
             </div>
           </div>
@@ -327,16 +349,16 @@ export default function AdminWarrantiesPage() {
                     Product
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Manufacturer
+                    Warranty #
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    User
+                    Provider
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Start Date
+                    Purchase Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Expiry Date
+                    Expiration Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
                     Status
@@ -348,7 +370,7 @@ export default function AdminWarrantiesPage() {
               </thead>
               <tbody className="bg-amber-50 divide-y divide-amber-200">
                 {filteredWarranties.length === 0 ? (
-                  <tr>
+                  <tr key="no-warranties">
                     <td colSpan={7} className="px-6 py-10 text-center text-amber-800">
                       <FileText className="h-12 w-12 mx-auto mb-2 text-amber-400" />
                       <p className="text-lg font-medium">No warranties found</p>
@@ -356,33 +378,46 @@ export default function AdminWarrantiesPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredWarranties.map(warranty => (
-                    <tr key={warranty.id} className="hover:bg-amber-100">
+                  // In the table rows where you render the warranties
+                  filteredWarranties.map((warranty, index) => (
+                    <tr key={`${warranty._id}-${index}`} className="hover:bg-amber-100">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-amber-900">{warranty.productName}</div>
+                        <div className="font-medium text-amber-900">{warranty.product?.name || 'Unknown Product'}</div>
+                        <div className="text-sm text-amber-700">{warranty.product?.manufacturer || 'Unknown Manufacturer'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.manufacturer}</div>
+                        <div className="text-amber-800">{warranty.warrantyNumber}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.user}</div>
+                        <div className="text-amber-800">{warranty.warrantyProvider}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.startDate}</div>
+                        <div className="text-amber-800">{new Date(warranty.purchaseDate).toLocaleDateString()}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.endDate}</div>
+                        <div className="text-amber-800">{new Date(warranty.expirationDate).toLocaleDateString()}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {getStatusBadge(warranty.status)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex justify-end space-x-2">
-                          <Link href={`/admin/warranties/${warranty.id}/edit`}>
+                          <Link href={warranty._id ? `/admin/warranties/${warranty._id}` : "#"}>
                             <Button 
                               variant="outline" 
                               size="sm"
                               className="border-amber-800 text-amber-800"
+                              disabled={!warranty._id}
+                            >
+                              <FileText className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                          <Link href={warranty._id ? `/admin/warranties/${warranty._id}/edit` : "#"}>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="border-amber-800 text-amber-800"
+                              disabled={!warranty._id}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -391,7 +426,8 @@ export default function AdminWarrantiesPage() {
                             variant="outline" 
                             size="sm"
                             className="border-red-800 text-red-800"
-                            onClick={() => handleDeleteWarranty(warranty.id)}
+                            onClick={() => warranty._id ? handleDeleteWarranty(warranty._id) : null}
+                            disabled={!warranty._id}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>

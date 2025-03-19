@@ -80,7 +80,19 @@ const createProduct = async (req, res) => {
 // Update product (admin only)
 const updateProduct = async (req, res) => {
   try {
-    const { name, description, category, manufacturer, model } = req.body;
+    const {
+      name,
+      description,
+      category,
+      manufacturer,
+      model,
+      serialNumber,
+      purchaseDate,
+      price,
+      purchaseLocation,
+      receiptNumber,
+      notes
+    } = req.body;
     
     // Find product
     const product = await Product.findById(req.params.id);
@@ -92,8 +104,14 @@ const updateProduct = async (req, res) => {
     if (name) product.name = name;
     if (description) product.description = description;
     if (category) product.category = category;
-    if (manufacturer) product.manufacturer = manufacturer;
+    if (manufacturer !== undefined) product.manufacturer = manufacturer;
     if (model !== undefined) product.model = model;
+    if (serialNumber) product.serialNumber = serialNumber;
+    if (purchaseDate !== undefined) product.purchaseDate = purchaseDate;
+    if (price !== undefined) product.price = price;
+    if (purchaseLocation !== undefined) product.purchaseLocation = purchaseLocation;
+    if (receiptNumber !== undefined) product.receiptNumber = receiptNumber;
+    if (notes !== undefined) product.notes = notes;
     
     await product.save();
     

@@ -22,75 +22,8 @@ import {
 } from "lucide-react"
 import WarrantySidebar from "./components/sidebar"
 import { useAuth } from "@/lib/auth-context"
-
-// Define the warranty type
-interface Warranty {
-  id: number;
-  product: string;
-  category: string;
-  provider: string;
-  purchaseDate: string;
-  endDate: string;
-  status: string;
-}
-
-// Mock data for demonstration
-const mockWarranties: Warranty[] = [
-  {
-    id: 1,
-    product: "Samsung TV",
-    category: "electronics",
-    provider: "Samsung Electronics",
-    purchaseDate: "2023-01-15",
-    endDate: "2024-05-15",
-    status: "active"
-  },
-  {
-    id: 2,
-    product: "Dyson Vacuum",
-    category: "appliances",
-    provider: "Dyson Inc.",
-    purchaseDate: "2022-06-10",
-    endDate: "2023-12-10",
-    status: "expiring"
-  },
-  {
-    id: 3,
-    product: "MacBook Pro",
-    category: "electronics",
-    provider: "Apple Inc.",
-    purchaseDate: "2022-05-20",
-    endDate: "2023-08-25",
-    status: "expiring"
-  },
-  {
-    id: 4,
-    product: "IKEA Sofa",
-    category: "furniture",
-    provider: "IKEA",
-    purchaseDate: "2022-01-30",
-    endDate: "2023-01-30",
-    status: "expired"
-  },
-  {
-    id: 5,
-    product: "Nike Shoes",
-    category: "clothing",
-    provider: "Nike",
-    purchaseDate: "2023-02-15",
-    endDate: "2024-02-15",
-    status: "active"
-  },
-  {
-    id: 6,
-    product: "Sony Headphones",
-    category: "electronics",
-    provider: "Sony",
-    purchaseDate: "2022-11-05",
-    endDate: "2023-11-05",
-    status: "active"
-  }
-]
+import { Warranty } from "@/types/warranty"
+import { warrantyApi } from "@/lib/api"
 
 // Create a component that uses useSearchParams
 function WarrantiesContent() {
@@ -100,16 +33,59 @@ function WarrantiesContent() {
   const [warranties, setWarranties] = useState<Warranty[]>([])
   const [filteredWarranties, setFilteredWarranties] = useState<Warranty[]>([])
   const [searchTerm, setSearchTerm] = useState("")
-  const [sortField, setSortField] = useState<keyof Warranty>("endDate")
+  const [sortField, setSortField] = useState<keyof Warranty>("expirationDate")
   const [sortDirection, setSortDirection] = useState("asc")
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   
   // Filter warranties by category
   const filterWarrantiesByCategory = (category: string) => {
-    const filtered = warranties.filter(warranty => warranty.category === category)
+    const filtered = warranties.filter(warranty => 
+      warranty.product && warranty.product.manufacturer.toLowerCase() === category.toLowerCase()
+    )
     setFilteredWarranties(filtered)
+  }
+  
+  // Fetch warranties from API
+  const fetchWarranties = async () => {
+    try {
+      setIsLoading(true)
+      console.log('Fetching warranties from API...')
+      
+      // Use the warrantyApi utility which handles authentication automatically
+      const response = await warrantyApi.getAllWarranties()
+      
+      if (response.error) {
+        console.error('Error fetching warranties:', response.error)
+        setError(response.error)
+        return []
+      }
+      
+      console.log('Warranties data received:', response.data)
+      
+      // Handle different response formats
+      if (!response.data) {
+        return []
+      }
+      
+      if (Array.isArray(response.data)) {
+        return response.data
+      } else if ('warranties' in response.data && Array.isArray(response.data.warranties)) {
+        return response.data.warranties
+      } else {
+        console.error('Unexpected API response format:', response.data)
+        setError('Invalid API response format')
+        return []
+      }
+    } catch (err) {
+      console.error('Error fetching warranties:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load warranties. Please try again later.')
+      return []
+    } finally {
+      setIsLoading(false)
+    }
   }
   
   // Check if user is logged in and fetch warranties
@@ -120,25 +96,26 @@ function WarrantiesContent() {
       } else if (user && user.role !== 'user') {
         router.replace(user.role === 'admin' ? '/admin' : '/login')
       } else {
-        // In a real app, you would fetch the warranties from your backend
-        setWarranties(mockWarranties)
-        setFilteredWarranties(mockWarranties)
-        
-        // Check if there's a category filter in the URL
-        const category = searchParams?.get('category')
-        if (category) {
-          filterWarrantiesByCategory(category)
-        }
-        
-        // Check if there's a status filter in the URL
-        const status = searchParams?.get('status')
-        if (status) {
-          setStatusFilter(status)
-          const filtered = mockWarranties.filter(warranty => warranty.status === status)
-          setFilteredWarranties(filtered)
-        }
+        // Fetch warranties from API
+        fetchWarranties().then(data => {
+          setWarranties(data)
+          setFilteredWarranties(data)
+          
+          // Check if there's a category filter in the URL
+          const category = searchParams?.get('category')
+          if (category) {
+            filterWarrantiesByCategory(category)
+          }
+          
+          // Check if there's a status filter in the URL
+          const status = searchParams?.get('status')
+          if (status) {
+            setStatusFilter(status)
+            const filtered = data.filter((warranty: Warranty) => warranty.status === status)
+            setFilteredWarranties(filtered)
+          }
+        })
       }
-      setIsLoading(false)
     }
   }, [router, searchParams, authLoading, isAuthenticated, user])
   
@@ -155,16 +132,24 @@ function WarrantiesContent() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       result = result.filter(warranty => 
-        warranty.product.toLowerCase().includes(query) || 
-        warranty.provider.toLowerCase().includes(query) ||
-        warranty.category.toLowerCase().includes(query)
+        (warranty.product && warranty.product.name.toLowerCase().includes(query)) || 
+        (warranty.warrantyProvider && warranty.warrantyProvider.toLowerCase().includes(query)) ||
+        (warranty.product && warranty.product.manufacturer.toLowerCase().includes(query))
       )
     }
     
     // Apply sorting
     result.sort((a, b) => {
-      const valueA = a[sortField]
-      const valueB = b[sortField]
+      let valueA, valueB;
+      
+      // Handle nested properties
+      if (sortField === 'product') {
+        valueA = a.product?.name || '';
+        valueB = b.product?.name || '';
+      } else {
+        valueA = a[sortField as keyof Warranty] || '';
+        valueB = b[sortField as keyof Warranty] || '';
+      }
       
       if (sortDirection === 'asc') {
         return valueA > valueB ? 1 : -1
@@ -230,6 +215,28 @@ function WarrantiesContent() {
     return (
       <div className="flex-1 p-6 ml-64 flex items-center justify-center">
         <p className="text-amber-800 text-xl">Loading warranties...</p>
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="flex-1 p-6 ml-64">
+        <div className="max-w-6xl mx-auto">
+          <div className="bg-red-100 border-2 border-red-400 text-red-700 p-4 rounded mb-6">
+            <p>{error}</p>
+            <Button 
+              onClick={() => fetchWarranties().then(data => {
+                setWarranties(data)
+                setFilteredWarranties(data)
+                setError(null)
+              })}
+              className="mt-2 bg-red-600 hover:bg-red-700 text-white"
+            >
+              Try Again
+            </Button>
+          </div>
+        </div>
       </div>
     )
   }
@@ -319,9 +326,9 @@ function WarrantiesContent() {
                 <span className="mx-2">|</span>
                 <button 
                   className="flex items-center font-medium hover:text-amber-600"
-                  onClick={() => handleSortChange('endDate')}
+                  onClick={() => handleSortChange('expirationDate')}
                 >
-                  Expiry Date {getSortIcon('endDate')}
+                  Expiry Date {getSortIcon('expirationDate')}
                 </button>
               </div>
             </div>
@@ -349,32 +356,40 @@ function WarrantiesContent() {
               </div>
             ) : (
               <div className="space-y-4">
-                {filteredWarranties.map(warranty => (
-                  <Link key={warranty.id} href={`/user/warranties/${warranty.id}`}>
+                {filteredWarranties.map(warranty => {
+                  // Debug log to see the warranty object structure
+                  console.log('Warranty object:', warranty);
+                  
+                  // Use _id if available, fall back to id
+                  const warrantyId = warranty._id || warranty.id;
+                  
+                  return (
+                  <Link key={warrantyId} href={`/user/warranties/${warrantyId}`}>
                     <div className="flex justify-between items-center p-4 border-2 border-amber-800 rounded-lg bg-amber-50 hover:bg-amber-200 transition-colors">
                       <div className="flex items-center">
                         <div className="mr-4">
                           <Package className="h-10 w-10 text-amber-800" />
                         </div>
                         <div>
-                          <h3 className="font-medium text-amber-900">{warranty.product}</h3>
-                          <p className="text-sm text-amber-700">{warranty.provider}</p>
+                          <h3 className="font-medium text-amber-900">{warranty.product?.name || 'Unknown Product'}</h3>
+                          <p className="text-sm text-amber-700">{warranty.warrantyProvider}</p>
                           <div className="flex items-center mt-1 space-x-2">
                             {getStatusBadge(warranty.status)}
-                            <Badge className="bg-amber-800">{warranty.category}</Badge>
+                            <Badge className="bg-amber-800">{warranty.product?.manufacturer || 'Unknown'}</Badge>
                           </div>
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="flex items-center text-sm text-amber-800">
                           <Calendar className="h-4 w-4 mr-1" />
-                          Expires: {warranty.endDate}
+                          Expires: {new Date(warranty.expirationDate).toLocaleDateString()}
                         </div>
                         <ChevronRight className="h-5 w-5 text-amber-800 mt-2 ml-auto" />
                       </div>
                     </div>
                   </Link>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

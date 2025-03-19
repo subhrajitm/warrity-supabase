@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useParams } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -32,6 +32,8 @@ import {
   AlertTriangle
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { adminApi } from "@/lib/api";
+import { toast } from "sonner";
 
 // Mock user data
 const mockUser = {
@@ -104,29 +106,41 @@ const mockUser = {
   ]
 }
 
+// Update the UserData interface to match the actual data structure
 interface UserData {
-  id: string;
+  id: number;
+  _id?: string; // Add MongoDB ID support
   name: string;
   email: string;
   phone: string;
   address: string;
   role: string;
   status: string;
-  joinDate: string;
-  lastActive: string;
+  createdAt: string; // Changed from joinDate
+  lastLogin: string; // Changed from lastActive
   profileImage: string;
+  products: Array<{
+    id: number;
+    name: string;
+    category: string;
+    purchaseDate: string;
+    warrantyEndDate: string;
+  }>;
   warranties: Array<{
     id: number;
     product: string;
-    category: string;
-    purchaseDate: string;
-    expiryDate: string;
+    provider: string;
+    startDate: string;
+    endDate: string;
     status: string;
   }>;
-  recentActivity: Array<{
-    action: string;
-    date: string;
-    details: string;
+  paymentMethods: Array<{
+    id: number;
+    type: string;
+    last4?: string;
+    expiry?: string;
+    email?: string;
+    isDefault: boolean;
   }>;
 }
 
@@ -134,13 +148,35 @@ interface Params {
   id: string;
 }
 
-export default function AdminUserDetailPage({ params }: { params: Params }) {
+export default function AdminUserDetailPage() {
   const router = useRouter()
-  const userId = params.id
+  const params = useParams()
+  const userId = params.id as string
   const { user: authUser, isAuthenticated, isLoading: authLoading } = useAuth()
   const [user, setUser] = useState<UserData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  
+  // Function to fetch user details - moved inside component
+  const fetchUserDetails = async () => {
+    try {
+      setIsLoading(true);
+      
+      const response = await adminApi.getUserById(userId);
+      if (response.error) {
+        toast.error('Failed to fetch user: ' + response.error);
+        setIsLoading(false);
+        return;
+      }
+      
+      setUser(response.data.user);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error fetching user details:', error);
+      toast.error('An error occurred while fetching user details');
+      setIsLoading(false);
+    }
+  }
   
   // Check if admin is logged in and fetch user data
   useEffect(() => {
@@ -150,14 +186,7 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
       } else if (authUser?.role !== 'admin') {
         router.replace(authUser?.role === 'user' ? '/user' : '/login')
       } else {
-        // In a real app, you would fetch the user data based on the ID
-        console.log(`Fetching user with ID: ${userId}`)
-        
-        // Simulate API call with timeout
-        setTimeout(() => {
-          setUser(mockUser)
-          setIsLoading(false)
-        }, 500)
+        fetchUserDetails()
       }
     }
   }, [router, userId, authLoading, isAuthenticated, authUser])
@@ -252,7 +281,7 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
     router.push('/admin/users')
   }
   
-  if (isLoading) {
+  if (isLoading || !user) {
     return (
       <div className="flex items-center justify-center h-full">
         <p className="text-amber-800 text-xl">Loading user details...</p>
@@ -281,13 +310,13 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
             <div className="flex flex-col items-center mb-6">
               <div className="w-32 h-32 rounded-full bg-amber-200 flex items-center justify-center mb-4 border-4 border-amber-800">
                 <span className="text-4xl font-bold text-amber-800">
-                  {user.name.charAt(0)}
+                  {user?.name ? user.name.charAt(0) : '?'}
                 </span>
               </div>
               
-              <h2 className="text-2xl font-bold text-amber-900">{user.name}</h2>
-              <div className="mt-2">{getRoleBadge(user.role)}</div>
-              <div className="mt-2">{getStatusBadge(user.status)}</div>
+              <h2 className="text-2xl font-bold text-amber-900">{user?.name || 'Loading...'}</h2>
+              <div className="mt-2">{getRoleBadge(user?.role || 'user')}</div>
+              <div className="mt-2">{getStatusBadge(user?.status || 'pending')}</div>
             </div>
             
             <div className="space-y-4">
@@ -417,7 +446,7 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
                 </CardHeader>
                 
                 <CardContent className="p-6">
-                  {user.products.length > 0 ? (
+                  {user.products && user.products.length > 0 ? (
                     <div className="space-y-4">
                       {user.products.map((product) => (
                         <Card key={product.id} className="border-2 border-amber-300 bg-amber-50">
@@ -475,7 +504,7 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
                 </CardHeader>
                 
                 <CardContent className="p-6">
-                  {user.warranties.length > 0 ? (
+                  {user.warranties && user.warranties.length > 0 ? (
                     <div className="space-y-4">
                       {user.warranties.map((warranty) => (
                         <Card key={warranty.id} className="border-2 border-amber-300 bg-amber-50">
@@ -529,7 +558,7 @@ export default function AdminUserDetailPage({ params }: { params: Params }) {
                 </CardHeader>
                 
                 <CardContent className="p-6">
-                  {user.paymentMethods.length > 0 ? (
+                  {user.paymentMethods && user.paymentMethods.length > 0 ? (
                     <div className="space-y-4">
                       {user.paymentMethods.map((method) => (
                         <Card key={method.id} className="border-2 border-amber-300 bg-amber-50">

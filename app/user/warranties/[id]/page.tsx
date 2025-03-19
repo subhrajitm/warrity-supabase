@@ -22,39 +22,8 @@ import {
 } from "lucide-react"
 import WarrantySidebar from "../components/sidebar"
 import { useAuth } from "@/lib/auth-context"
-
-// Mock data for demonstration
-const mockWarranty = {
-  id: 1,
-  product: "Samsung TV",
-  category: "electronics",
-  provider: "Samsung Electronics",
-  providerContact: "+1 (800) 726-7864",
-  purchaseDate: "2023-01-15",
-  endDate: "2024-05-15",
-  status: "active",
-  purchasePrice: "$1,299.99",
-  receiptImage: "/receipt.jpg",
-  warrantyDocument: "/warranty.pdf",
-  notes: "Extended warranty purchased for an additional year. Includes coverage for screen damage and hardware failures.",
-  claimProcess: "Contact Samsung customer service at the provided number. Have your serial number and proof of purchase ready. For in-store service, visit any authorized Samsung service center."
-}
-
-interface Warranty {
-  id: number;
-  product: string;
-  category: string;
-  provider: string;
-  providerContact: string;
-  purchaseDate: string;
-  endDate: string;
-  status: string;
-  purchasePrice: string;
-  receiptImage: string;
-  warrantyDocument: string;
-  notes: string;
-  claimProcess: string;
-}
+import { Warranty } from "@/types/warranty"
+import { warrantyApi } from "@/lib/api"
 
 export default function WarrantyDetailPage() {
   const router = useRouter()
@@ -62,6 +31,40 @@ export default function WarrantyDetailPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth()
   const [warranty, setWarranty] = useState<Warranty | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Fetch warranty details from API
+  const fetchWarrantyDetails = async (id: string) => {
+    try {
+      setIsLoading(true)
+      
+      // Use the warrantyApi utility which handles authentication automatically
+      const response = await warrantyApi.getWarrantyById(id)
+      
+      if (response.error) {
+        console.error('Error fetching warranty details:', response.error)
+        setError(response.error)
+        return null
+      }
+      
+      // The response data might be the warranty object directly or nested in a property
+      const warrantyData = response.data?.warranty || response.data
+      
+      if (!warrantyData) {
+        throw new Error('Warranty not found')
+      }
+      
+      // Ensure we return a properly typed Warranty object
+      const warranty: Warranty = warrantyData as Warranty
+      return warranty
+    } catch (err) {
+      console.error('Error fetching warranty details:', err)
+      setError('Failed to load warranty details. Please try again later.')
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }
   
   // Check if user is logged in and fetch data
   useEffect(() => {
@@ -71,22 +74,44 @@ export default function WarrantyDetailPage() {
       } else if (user?.role !== 'user') {
         router.replace(user?.role === 'admin' ? '/admin' : '/login')
       } else {
-        // In a real app, you would fetch the warranty details from your backend
-        setTimeout(() => {
-          setWarranty(mockWarranty)
-          setIsLoading(false)
-        }, 500)
+        // Fetch warranty details from API
+        fetchWarrantyDetails(params.id).then(data => {
+          setWarranty(data)
+        })
       }
     }
   }, [router, params, authLoading, isAuthenticated, user])
   
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (confirm("Are you sure you want to delete this warranty? This action cannot be undone.")) {
-      // In a real app, you would send a delete request to your backend
-      console.log(`Deleting warranty with ID: ${params.id}`)
-      
-      // Redirect to warranties list
-      router.push('/user/warranties')
+      try {
+        setIsLoading(true)
+        
+        // Make sure we have a valid ID
+        const warrantyId = warranty?._id || warranty?.id || params.id;
+        if (!warrantyId) {
+          setError("Invalid warranty ID");
+          setIsLoading(false);
+          return;
+        }
+        
+        // Use the warrantyApi utility which handles authentication automatically
+        const response = await warrantyApi.deleteWarranty(warrantyId)
+        
+        if (response.error) {
+          console.error('Error deleting warranty:', response.error)
+          setError(response.error)
+          setIsLoading(false)
+          return
+        }
+        
+        // Redirect to warranties list
+        router.push('/user/warranties')
+      } catch (err) {
+        console.error('Error deleting warranty:', err)
+        setError('Failed to delete warranty. Please try again later.')
+        setIsLoading(false)
+      }
     }
   }
   
@@ -129,6 +154,37 @@ export default function WarrantyDetailPage() {
     )
   }
   
+  if (error) {
+    return (
+      <div className="flex min-h-screen bg-amber-50">
+        <WarrantySidebar />
+        <div className="flex-1 p-6 ml-64">
+          <div className="max-w-4xl mx-auto text-center">
+            <h1 className="text-3xl font-bold text-amber-900 mb-4">Error</h1>
+            <p className="text-amber-800 mb-6">{error}</p>
+            <div className="flex justify-center space-x-4">
+              <Button 
+                onClick={() => fetchWarrantyDetails(params.id).then(data => {
+                  setWarranty(data)
+                  setError(null)
+                })}
+                className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
+              >
+                Try Again
+              </Button>
+              <Link href="/user/warranties">
+                <Button className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back to Warranties
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  
   if (!warranty) {
     return (
       <div className="flex min-h-screen bg-amber-50">
@@ -163,9 +219,9 @@ export default function WarrantyDetailPage() {
           </div>
           
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-amber-900">{warranty.product}</h1>
+            <h1 className="text-3xl font-bold text-amber-900">{warranty.product.name}</h1>
             <div className="flex space-x-2">
-              <Link href={`/user/warranties/${warranty.id}/edit`}>
+              <Link href={`/user/warranties/${warranty._id || warranty.id}/edit`}>
                 <Button className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900">
                   <Edit className="mr-2 h-4 w-4" />
                   Edit
@@ -192,19 +248,15 @@ export default function WarrantyDetailPage() {
               <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Product:</span>
-                  <span className="text-amber-900">{warranty.product}</span>
+                  <span className="text-amber-900">{warranty.product.name}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Category:</span>
-                  <Badge className="bg-amber-800">{warranty.category}</Badge>
+                  <Badge className="bg-amber-800">{warranty.product.manufacturer}</Badge>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Status:</span>
                   {getStatusBadge(warranty.status)}
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-amber-800 font-medium">Purchase Price:</span>
-                  <span className="text-amber-900">{warranty.purchasePrice}</span>
                 </div>
               </CardContent>
             </Card>
@@ -218,89 +270,86 @@ export default function WarrantyDetailPage() {
               <CardContent className="p-6 space-y-4">
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Provider:</span>
-                  <span className="text-amber-900">{warranty.provider}</span>
+                  <span className="text-amber-900">{warranty.warrantyProvider}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Purchase Date:</span>
                   <div className="flex items-center text-amber-900">
                     <Calendar className="h-4 w-4 mr-1" />
-                    {warranty.purchaseDate}
+                    {new Date(warranty.purchaseDate).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-amber-800 font-medium">Expiry Date:</span>
                   <div className="flex items-center text-amber-900">
                     <Calendar className="h-4 w-4 mr-1" />
-                    {warranty.endDate}
+                    {new Date(warranty.expirationDate).toLocaleDateString()}
                   </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-amber-800 font-medium">Contact:</span>
-                  <div className="flex items-center text-amber-900">
-                    <Phone className="h-4 w-4 mr-1" />
-                    {warranty.providerContact}
+                {warranty.warrantyNumber && (
+                  <div className="flex justify-between">
+                    <span className="text-amber-800 font-medium">Warranty Number:</span>
+                    <span className="text-amber-900">{warranty.warrantyNumber}</span>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
           </div>
           
-          <div className="grid gap-6 md:grid-cols-2 mb-6">
-            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+          {warranty.documents && warranty.documents.length > 0 && (
+            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100 mb-6">
               <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                 <CardTitle className="text-xl font-bold text-amber-900">
                   Documents
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                <div className="flex items-center justify-between p-3 border-2 border-amber-800 rounded-lg bg-amber-50">
-                  <div className="flex items-center">
-                    <Receipt className="h-6 w-6 text-amber-800 mr-3" />
-                    <span className="text-amber-900">Purchase Receipt</span>
+                {warranty.documents.map((doc, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border-2 border-amber-800 rounded-lg bg-amber-50">
+                    <div className="flex items-center">
+                      <FileText className="h-6 w-6 text-amber-800 mr-3" />
+                      <span className="text-amber-900">{doc.name}</span>
+                    </div>
+                    <a href={doc.path} target="_blank" rel="noopener noreferrer">
+                      <Button size="sm" className="bg-amber-800 hover:bg-amber-900 text-amber-100">
+                        View
+                      </Button>
+                    </a>
                   </div>
-                  <Button size="sm" className="bg-amber-800 hover:bg-amber-900 text-amber-100">
-                    View
-                  </Button>
-                </div>
-                
-                <div className="flex items-center justify-between p-3 border-2 border-amber-800 rounded-lg bg-amber-50">
-                  <div className="flex items-center">
-                    <FileText className="h-6 w-6 text-amber-800 mr-3" />
-                    <span className="text-amber-900">Warranty Document</span>
-                  </div>
-                  <Button size="sm" className="bg-amber-800 hover:bg-amber-900 text-amber-100">
-                    View
-                  </Button>
-                </div>
+                ))}
               </CardContent>
             </Card>
-            
-            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+          )}
+          
+          {warranty.coverageDetails && (
+            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100 mb-6">
               <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                 <CardTitle className="text-xl font-bold text-amber-900">
-                  Claim Process
+                  Coverage Details
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6">
                 <p className="text-amber-900 whitespace-pre-line">
-                  {warranty.claimProcess}
+                  {warranty.coverageDetails}
                 </p>
               </CardContent>
             </Card>
-          </div>
+          )}
           
-          <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-            <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-              <CardTitle className="text-xl font-bold text-amber-900">
-                Notes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6">
-              <p className="text-amber-900 whitespace-pre-line">
-                {warranty.notes || "No notes added."}
-              </p>
-            </CardContent>
-          </Card>
+          {warranty.notes && (
+            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+              <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
+                <CardTitle className="text-xl font-bold text-amber-900">
+                  Notes
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <p className="text-amber-900 whitespace-pre-line">
+                  {warranty.notes || "No notes added."}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

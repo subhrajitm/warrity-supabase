@@ -14,16 +14,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Save, X } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
-// Define Product interface
+import { productApi } from "@/lib/api"
+import { toast } from "sonner"
+
+// Define Product interface to match API
 interface Product {
-  id: number;
+  id: string;
   name: string;
   category: string;
-  manufacturer: string;
-  warrantyPeriod: string;
+  manufacturer?: string;
+  model?: string;
+  serialNumber: string;
+  purchaseDate?: string;
+  price?: string;
+  purchaseLocation?: string;
+  receiptNumber?: string;
   description?: string;
-  price?: number;
-  sku?: string;
+  notes?: string;
 }
 
 export default function AddProductPage() {
@@ -34,10 +41,14 @@ export default function AddProductPage() {
     name: "",
     category: "",
     manufacturer: "",
-    warrantyPeriod: "12 months",
     description: "",
-    price: undefined,
-    sku: ""
+    model: "",
+    serialNumber: "",
+    purchaseDate: "",
+    price: "",
+    purchaseLocation: "",
+    receiptNumber: "",
+    notes: ""
   })
   const [productImage, setProductImage] = useState<File | null>(null)
   const [error, setError] = useState("")
@@ -70,15 +81,25 @@ export default function AddProductPage() {
     }
   }
   
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setError("")
     
-    // In a real app, you would send the data to your backend
-    console.log("Submitting product:", formData)
-    
-    // Show success message and redirect
-    alert("Product added successfully!")
-    router.push("/admin/products")
+    try {
+      const response = await productApi.createProduct(formData)
+      if (response.error) {
+        setError(response.error)
+        toast.error('Failed to create product: ' + response.error)
+        return
+      }
+      
+      toast.success('Product created successfully!')
+      // Use replace instead of push to prevent back navigation
+      router.replace('/admin/products')
+    } catch (error) {
+      console.error('Error creating product:', error)
+      toast.error('An error occurred while creating the product')
+    }
   }
   
   if (isLoading) {
@@ -150,11 +171,12 @@ export default function AddProductPage() {
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="electronics">Electronics</SelectItem>
-                          <SelectItem value="appliances">Appliances</SelectItem>
-                          <SelectItem value="furniture">Furniture</SelectItem>
-                          <SelectItem value="clothing">Clothing</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
+                          <SelectItem value="Electronics">Electronics</SelectItem>
+                          <SelectItem value="Appliances">Appliances</SelectItem>
+                          <SelectItem value="Furniture">Furniture</SelectItem>
+                          <SelectItem value="Automotive">Automotive</SelectItem>
+                          <SelectItem value="Clothing">Clothing</SelectItem>
+                          <SelectItem value="Other">Other</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -175,45 +197,36 @@ export default function AddProductPage() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label htmlFor="warrantyPeriod" className="text-amber-900 font-medium">
-                        Warranty Period <span className="text-red-500">*</span>
+                      <Label htmlFor="model" className="text-amber-900 font-medium">
+                        Model
                       </Label>
-                      <Select
-                        value={formData.warrantyPeriod}
-                        onValueChange={(value) => handleSelectChange("warrantyPeriod", value)}
+                      <Input
+                        id="model"
+                        name="model"
+                        value={formData.model}
+                        onChange={handleInputChange}
+                        placeholder="Enter model number"
+                        className="border-2 border-amber-800 bg-amber-50"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="serialNumber" className="text-amber-900 font-medium">
+                        Serial Number <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="serialNumber"
+                        name="serialNumber"
+                        value={formData.serialNumber}
+                        onChange={handleInputChange}
+                        placeholder="Enter serial number"
+                        className="border-2 border-amber-800 bg-amber-50"
                         required
-                      >
-                        <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                          <SelectValue placeholder="Select warranty period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="3 months">3 months</SelectItem>
-                          <SelectItem value="6 months">6 months</SelectItem>
-                          <SelectItem value="12 months">12 months</SelectItem>
-                          <SelectItem value="24 months">24 months</SelectItem>
-                          <SelectItem value="36 months">36 months</SelectItem>
-                          <SelectItem value="5 years">5 years</SelectItem>
-                          <SelectItem value="10 years">10 years</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      />
                     </div>
                   </div>
                   
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="sku" className="text-amber-900 font-medium">
-                        SKU
-                      </Label>
-                      <Input
-                        id="sku"
-                        name="sku"
-                        value={formData.sku}
-                        onChange={handleInputChange}
-                        placeholder="Enter product SKU"
-                        className="border-2 border-amber-800 bg-amber-50"
-                      />
-                    </div>
-                    
                     <div className="space-y-2">
                       <Label htmlFor="price" className="text-amber-900 font-medium">
                         Price
@@ -221,8 +234,7 @@ export default function AddProductPage() {
                       <Input
                         id="price"
                         name="price"
-                        type="number"
-                        value={formData.price || ""}
+                        value={formData.price}
                         onChange={handleInputChange}
                         placeholder="Enter product price"
                         className="border-2 border-amber-800 bg-amber-50"
@@ -231,7 +243,7 @@ export default function AddProductPage() {
                     
                     <div className="space-y-2">
                       <Label htmlFor="description" className="text-amber-900 font-medium">
-                        Description
+                        Description <span className="text-red-500">*</span>
                       </Label>
                       <Textarea
                         id="description"
@@ -240,6 +252,7 @@ export default function AddProductPage() {
                         onChange={handleInputChange}
                         placeholder="Enter product description"
                         className="border-2 border-amber-800 bg-amber-50 min-h-[120px]"
+                        required
                       />
                     </div>
                   </div>

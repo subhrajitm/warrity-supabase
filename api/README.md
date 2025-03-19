@@ -16,6 +16,7 @@ This API provides all the necessary endpoints for the Warrity application, inclu
 - Compression
 - Winston for logging
 - Express Rate Limit
+- Swagger for API documentation
 - Docker & Docker Compose (for production deployment)
 
 ## Getting Started
@@ -25,22 +26,6 @@ This API provides all the necessary endpoints for the Warrity application, inclu
 - Node.js v16 or higher
 - MongoDB (local installation or MongoDB Atlas)
 - Docker and Docker Compose (for production deployment)
-
-### MongoDB Setup
-
-#### Local MongoDB
-
-1. Install MongoDB on your local machine
-2. Start the MongoDB service
-3. Create a database named `warrity`
-
-#### MongoDB Atlas
-
-1. Create a MongoDB Atlas account
-2. Set up a new cluster
-3. Create a database user
-4. Get your connection string
-5. Update the `.env` file with your connection string
 
 ### Installation
 
@@ -62,6 +47,29 @@ This API provides all the necessary endpoints for the Warrity application, inclu
    ```
    npm run dev
    ```
+
+## API Documentation
+
+The API is documented using Swagger. Once the server is running, you can access the documentation at:
+
+```
+http://localhost:5001/api-docs/
+```
+
+The documentation includes:
+- Detailed descriptions of all endpoints
+- Request and response schemas
+- Authentication requirements
+- Example requests and responses
+- Testing endpoints directly from the UI
+
+The Swagger documentation is organized into the following sections:
+- Authentication
+- Users
+- Warranties
+- Products
+- Events
+- Admin
 
 ## API Endpoints
 

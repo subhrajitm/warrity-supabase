@@ -1,15 +1,6 @@
-const { validationResult, body } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 
-// Middleware to handle validation errors
-const validate = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ errors: errors.array() });
-  }
-  next();
-};
-
-// User validation rules
+// Validation rules for different entities
 const userValidationRules = {
   register: [
     body('name').notEmpty().withMessage('Name is required'),
@@ -30,27 +21,47 @@ const userValidationRules = {
   ]
 };
 
-// Warranty validation rules
-const warrantyValidationRules = {
+// Validation rules for authentication
+const authValidationRules = {
   create: [
     body('product').notEmpty().withMessage('Product is required'),
-    body('purchaseDate').isISO8601().withMessage('Valid purchase date is required'),
-    body('expirationDate').isISO8601().withMessage('Valid expiration date is required'),
+    body('purchaseDate').isDate().withMessage('Valid purchase date is required'),
+    body('expirationDate').isDate().withMessage('Valid expiration date is required'),
     body('warrantyProvider').notEmpty().withMessage('Warranty provider is required'),
     body('warrantyNumber').notEmpty().withMessage('Warranty number is required'),
     body('coverageDetails').notEmpty().withMessage('Coverage details are required')
   ],
   update: [
-    body('purchaseDate').optional().isISO8601().withMessage('Valid purchase date is required'),
-    body('expirationDate').optional().isISO8601().withMessage('Valid expiration date is required'),
-    body('warrantyProvider').optional().notEmpty().withMessage('Warranty provider cannot be empty'),
-    body('warrantyNumber').optional().notEmpty().withMessage('Warranty number cannot be empty'),
-    body('coverageDetails').optional().notEmpty().withMessage('Coverage details cannot be empty'),
-    body('notes').optional()
+    body('purchaseDate').optional().isDate().withMessage('Valid purchase date is required'),
+    body('expirationDate').optional().isDate().withMessage('Valid expiration date is required'),
+    body('warrantyProvider').optional().notEmpty().withMessage('Warranty provider is required'),
+    body('warrantyNumber').optional().notEmpty().withMessage('Warranty number is required'),
+    body('coverageDetails').optional().notEmpty().withMessage('Coverage details are required'),
+    body('status').optional().isIn(['active', 'expiring', 'expired']).withMessage('Status must be active, expiring, or expired')
   ]
 };
 
-// Product validation rules
+// Validation rules for warranties
+const warrantyValidationRules = {
+  create: [
+    body('product').notEmpty().withMessage('Product is required'),
+    body('purchaseDate').isDate().withMessage('Valid purchase date is required'),
+    body('expirationDate').isDate().withMessage('Valid expiration date is required'),
+    body('warrantyProvider').notEmpty().withMessage('Warranty provider is required'),
+    body('warrantyNumber').notEmpty().withMessage('Warranty number is required'),
+    body('coverageDetails').notEmpty().withMessage('Coverage details are required')
+  ],
+  update: [
+    body('purchaseDate').optional().isDate().withMessage('Valid purchase date is required'),
+    body('expirationDate').optional().isDate().withMessage('Valid expiration date is required'),
+    body('warrantyProvider').optional().notEmpty().withMessage('Warranty provider is required'),
+    body('warrantyNumber').optional().notEmpty().withMessage('Warranty number is required'),
+    body('coverageDetails').optional().notEmpty().withMessage('Coverage details are required'),
+    body('status').optional().isIn(['active', 'expiring', 'expired']).withMessage('Status must be active, expiring, or expired')
+  ]
+};
+
+// Validation rules for products
 const productValidationRules = {
   create: [
     body('name').notEmpty().withMessage('Name is required'),
@@ -70,30 +81,41 @@ const productValidationRules = {
   ]
 };
 
-// Event validation rules
+// Validation rules for events
 const eventValidationRules = {
   create: [
     body('title').notEmpty().withMessage('Title is required'),
-    body('description').notEmpty().withMessage('Description is required'),
-    body('eventType').isIn(['warranty', 'maintenance', 'reminder', 'other']).withMessage('Invalid event type'),
-    body('startDate').isISO8601().withMessage('Valid start date is required'),
-    body('endDate').isISO8601().withMessage('Valid end date is required'),
-    body('allDay').isBoolean().withMessage('All day must be a boolean')
+    body('description').optional(),
+    body('date').isISO8601().withMessage('Valid date is required'),
+    body('type').isIn(['reminder', 'maintenance', 'expiration']).withMessage('Valid event type is required'),
+    body('warranty').optional().isMongoId().withMessage('Valid warranty ID is required')
   ],
   update: [
     body('title').optional().notEmpty().withMessage('Title cannot be empty'),
-    body('description').optional().notEmpty().withMessage('Description cannot be empty'),
-    body('eventType').optional().isIn(['warranty', 'maintenance', 'reminder', 'other']).withMessage('Invalid event type'),
-    body('startDate').optional().isISO8601().withMessage('Valid start date is required'),
-    body('endDate').optional().isISO8601().withMessage('Valid end date is required'),
-    body('allDay').optional().isBoolean().withMessage('All day must be a boolean')
+    body('description').optional(),
+    body('date').optional().isISO8601().withMessage('Valid date is required'),
+    body('type').optional().isIn(['reminder', 'maintenance', 'expiration']).withMessage('Valid event type is required'),
+    body('warranty').optional().isMongoId().withMessage('Valid warranty ID is required')
   ]
 };
 
+// Middleware to validate request
+const validate = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      message: 'Validation error',
+      errors: errors.array()
+    });
+  }
+  next();
+};
+
 module.exports = {
-  validate,
   userValidationRules,
+  authValidationRules,
   warrantyValidationRules,
   productValidationRules,
-  eventValidationRules
-}; 
+  eventValidationRules, // Add this line to export eventValidationRules
+  validate
+};

@@ -1,13 +1,43 @@
 const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
 
-const warrantySchema = new mongoose.Schema({
+// Document schema (for uploaded files)
+const DocumentSchema = new Schema({
+  filename: {
+    type: String,
+    required: true
+  },
+  originalName: {
+    type: String,
+    required: true
+  },
+  path: {
+    type: String,
+    required: true
+  },
+  mimetype: {
+    type: String,
+    required: true
+  },
+  size: {
+    type: Number,
+    required: true
+  },
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Warranty schema
+const WarrantySchema = new Schema({
   user: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
   product: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: 'Product',
     required: true
   },
@@ -31,22 +61,16 @@ const warrantySchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  documents: [{
-    name: String,
-    path: String,
-    uploadDate: {
-      type: Date,
-      default: Date.now
-    }
-  }],
+  notes: {
+    type: String,
+    default: ''
+  },
   status: {
     type: String,
     enum: ['active', 'expiring', 'expired'],
     default: 'active'
   },
-  notes: {
-    type: String
-  },
+  documents: [DocumentSchema],
   createdAt: {
     type: Date,
     default: Date.now
@@ -55,40 +79,29 @@ const warrantySchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
-}, {
-  timestamps: true
 });
 
-// Method to check if warranty is expiring (within 30 days)
-warrantySchema.methods.isExpiring = function() {
+// Update the updatedAt field before saving
+WarrantySchema.pre('save', function(next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Calculate status based on expiration date
+WarrantySchema.pre('save', function(next) {
   const today = new Date();
-  const expirationDate = new Date(this.expirationDate);
-  const thirtyDaysFromNow = new Date();
+  const thirtyDaysFromNow = new Date(today);
   thirtyDaysFromNow.setDate(today.getDate() + 30);
   
-  return expirationDate <= thirtyDaysFromNow && expirationDate > today;
-};
-
-// Method to check if warranty is expired
-warrantySchema.methods.isExpired = function() {
-  const today = new Date();
-  const expirationDate = new Date(this.expirationDate);
-  
-  return expirationDate < today;
-};
-
-// Pre-save hook to update status based on expiration date
-warrantySchema.pre('save', function(next) {
-  if (this.isExpired()) {
+  if (this.expirationDate < today) {
     this.status = 'expired';
-  } else if (this.isExpiring()) {
+  } else if (this.expirationDate <= thirtyDaysFromNow) {
     this.status = 'expiring';
   } else {
     this.status = 'active';
   }
+  
   next();
 });
 
-const Warranty = mongoose.model('Warranty', warrantySchema);
-
-module.exports = Warranty; 
+module.exports = mongoose.model('Warranty', WarrantySchema);

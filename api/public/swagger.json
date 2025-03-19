@@ -1,0 +1,350 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Warrity API Documentation",
+    "version": "1.0.0",
+    "description": "API documentation for the Warrity Warranty Management System",
+    "contact": {
+      "name": "Warrity Support",
+      "url": "https://warrity.yourdomain.com/support",
+      "email": "support@warrity.yourdomain.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5001",
+      "description": "Development server"
+    },
+    {
+      "url": "https://api.warrity.yourdomain.com",
+      "description": "Production server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "User": {
+        "type": "object",
+        "required": [
+          "name",
+          "email",
+          "password"
+        ],
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "The auto-generated ID of the user"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the user"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "description": "The email of the user"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "The password of the user"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "user",
+              "admin"
+            ],
+            "description": "The role of the user"
+          },
+          "profilePicture": {
+            "type": "string",
+            "description": "URL to the user's profile picture"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date the user was created"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The date the user was last updated"
+          }
+        },
+        "example": {
+          "_id": "60d0fe4f5311236168a109ca",
+          "name": "John Doe",
+          "email": "john.doe@example.com",
+          "role": "user",
+          "profilePicture": "/uploads/profiles/john-doe.jpg",
+          "createdAt": "2023-01-01T00:00:00.000Z",
+          "updatedAt": "2023-01-01T00:00:00.000Z"
+        }
+      },
+      "Warranty": {
+        "type": "object",
+        "required": [
+          "user",
+          "product",
+          "purchaseDate",
+          "expirationDate",
+          "warrantyProvider",
+          "warrantyNumber",
+          "coverageDetails"
+        ],
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "The auto-generated ID of the warranty"
+          },
+          "user": {
+            "type": "string",
+            "description": "The ID of the user who owns the warranty"
+          },
+          "product": {
+            "type": "string",
+            "description": "The ID of the product covered by the warranty"
+          },
+          "purchaseDate": {
+            "type": "string",
+            "format": "date",
+            "description": "The date the product was purchased"
+          },
+          "expirationDate": {
+            "type": "string",
+            "format": "date",
+            "description": "The date the warranty expires"
+          },
+          "warrantyProvider": {
+            "type": "string",
+            "description": "The company providing the warranty"
+          },
+          "warrantyNumber": {
+            "type": "string",
+            "description": "The warranty identification number"
+          },
+          "coverageDetails": {
+            "type": "string",
+            "description": "Details about what the warranty covers"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "uploadDate": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "expired"
+            ],
+            "description": "The current status of the warranty"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Additional notes about the warranty"
+          }
+        },
+        "example": {
+          "_id": "60d0fe4f5311236168a109cb",
+          "user": "60d0fe4f5311236168a109ca",
+          "product": "60d0fe4f5311236168a109cc",
+          "purchaseDate": "2023-01-01",
+          "expirationDate": "2024-01-01",
+          "warrantyProvider": "Samsung",
+          "warrantyNumber": "WR-12345-6789",
+          "coverageDetails": "Full coverage for parts and labor",
+          "status": "active",
+          "notes": "Extended warranty purchased"
+        }
+      },
+      "Product": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "category",
+          "manufacturer"
+        ],
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "The auto-generated ID of the product"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the product"
+          },
+          "description": {
+            "type": "string",
+            "description": "The description of the product"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "Electronics",
+              "Appliances",
+              "Furniture",
+              "Automotive",
+              "Clothing",
+              "Other"
+            ],
+            "description": "The category of the product"
+          },
+          "manufacturer": {
+            "type": "string",
+            "description": "The manufacturer of the product"
+          }
+        },
+        "example": {
+          "_id": "60d0fe4f5311236168a109cc",
+          "name": "Galaxy S21",
+          "description": "Samsung flagship smartphone",
+          "category": "Electronics",
+          "manufacturer": "Samsung"
+        }
+      },
+      "Event": {
+        "type": "object",
+        "required": [
+          "title",
+          "description",
+          "eventType",
+          "startDate",
+          "endDate"
+        ],
+        "properties": {
+          "_id": {
+            "type": "string",
+            "description": "The auto-generated ID of the event"
+          },
+          "title": {
+            "type": "string",
+            "description": "The title of the event"
+          },
+          "description": {
+            "type": "string",
+            "description": "The description of the event"
+          },
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "warranty",
+              "maintenance",
+              "reminder",
+              "other"
+            ],
+            "description": "The type of event"
+          },
+          "startDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The start date and time of the event"
+          },
+          "endDate": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The end date and time of the event"
+          },
+          "allDay": {
+            "type": "boolean",
+            "description": "Whether the event is an all-day event"
+          }
+        },
+        "example": {
+          "_id": "60d0fe4f5311236168a109cd",
+          "title": "Warranty Expiration",
+          "description": "Samsung Galaxy S21 warranty expires",
+          "eventType": "warranty",
+          "startDate": "2024-01-01T00:00:00.000Z",
+          "endDate": "2024-01-01T23:59:59.000Z",
+          "allDay": true
+        }
+      }
+    },
+    "responses": {
+      "UnauthorizedError": {
+        "description": "Access token is missing or invalid"
+      },
+      "ForbiddenError": {
+        "description": "User does not have permission to access the resource"
+      },
+      "NotFoundError": {
+        "description": "The requested resource was not found"
+      },
+      "ValidationError": {
+        "description": "Validation error occurred"
+      },
+      "ServerError": {
+        "description": "Internal server error"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/warranties": {
+      "get": {
+        "summary": "Get all warranties for the current user",
+        "tags": [
+          "Warranties"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A list of warranties",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Warranty"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/UnauthorizedError"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    }
+  },
+  "tags": []
+}

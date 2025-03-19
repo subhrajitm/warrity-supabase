@@ -1,32 +1,15 @@
-import { toast } from "sonner";
-
-// API base URL
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
-const UPLOAD_BASE_URL = process.env.NEXT_PUBLIC_UPLOAD_URL || 'http://localhost:5001/uploads';
-
-// Add request timeout and retry configuration
-const DEFAULT_TIMEOUT = 8000;
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
-
 // Types
+import { Warranty, WarrantyInput, WarrantyDocument } from '../types/warranty';
+import { Product } from '../types/product';
+
+// Extend the Product type to include MongoDB _id field
+export interface ProductData extends Product {
+  _id?: string; // MongoDB ID
+}
+
 interface ApiResponse<T = any> {
   data: T | null;
   error: string | null;
-}
-
-interface ProductData {
-  name: string;
-  category: string;
-  model?: string;
-  manufacturer?: string;
-  serialNumber: string;
-  purchaseDate?: string;
-  price?: string;
-  purchaseLocation?: string;
-  receiptNumber?: string;
-  description?: string;
-  notes?: string;
 }
 
 // API Types
@@ -35,6 +18,7 @@ interface User {
   email: string;
   name: string;
   role: 'user' | 'admin';
+  isVerified: boolean;
   phone?: string;
   bio?: string;
   profilePicture?: string;
@@ -47,140 +31,145 @@ interface User {
   preferences?: {
     emailNotifications: boolean;
     reminderDays: number;
+    theme?: string;
+    notifications?: boolean;
+    language?: string;
   };
   createdAt: string;
   updatedAt: string;
 }
 
-interface Warranty {
+interface UserProfile {
   id: string;
-  productId: string;
-  startDate: string;
-  endDate: string;
-  status: 'active' | 'expired' | 'expiring';
-  documents: WarrantyDocument[];
-  notes?: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+  address: {
+    street: string;
+    city: string;
+    state: string;
+    zipCode: string;
+    country: string;
+  };
+  preferences: {
+    theme: string;
+    notifications: boolean;
+    language: string;
+  };
   createdAt: string;
   updatedAt: string;
-}
-
-interface WarrantyDocument {
-  id: string;
-  name: string;
-  url: string;
-  type: string;
-  uploadedAt: string;
 }
 
 interface Event {
   id: string;
   title: string;
-  description?: string;
-  date: string;
-  type: 'warranty_expiry' | 'maintenance' | 'reminder';
-  status: 'pending' | 'completed';
+  description: string;
+  startDate: string;
+  endDate: string;
+  allDay: boolean;
+  location: string;
+  category: string;
+  color: string;
   createdAt: string;
   updatedAt: string;
 }
 
 interface DashboardStats {
-  totalProducts: number;
+  totalWarranties: number;
   activeWarranties: number;
   expiringWarranties: number;
   expiredWarranties: number;
-  upcomingEvents: number;
+  warrantyByCategory: {
+    category: string;
+    count: number;
+  }[];
+  recentWarranties: Warranty[];
 }
 
 interface UserActivity {
   id: string;
-  userId: string;
+  userId: User['id'];
   action: string;
-  details: string;
+  resourceType: string;
+  resourceId: string;
   timestamp: string;
+  details?: Record<string, any>;
 }
 
-// Cache configuration
-interface CacheConfig {
-  ttl: number;  // Time to live in milliseconds
-  maxSize: number;  // Maximum number of items in cache
-}
+// API base URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001/api';
+const UPLOAD_BASE_URL = process.env.NEXT_PUBLIC_UPLOAD_URL || 'http://localhost:5001/uploads';
 
-interface CacheItem<T> {
-  data: T;
-  timestamp: number;
-}
+// Add request timeout and retry configuration
+const DEFAULT_TIMEOUT = 8000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
 
+// Request cache implementation
 class RequestCache {
-  public cache = new Map<string, CacheItem<any>>();
-  private config: CacheConfig;
+  cache: Map<string, { data: any; timestamp: number }>;
+  maxAge: number; // Cache expiry in ms
 
-  constructor(config: CacheConfig) {
-    this.config = config;
-    this.startCleanupInterval();
+  constructor(maxAge = 60000) { // Default 1 minute
+    this.cache = new Map();
+    this.maxAge = maxAge;
   }
 
-  private startCleanupInterval() {
-    setInterval(() => {
-      this.cleanup();
-    }, this.config.ttl);
-  }
+  get(key: string): any | null {
+    const cached = this.cache.get(key);
+    if (!cached) return null;
 
-  private cleanup() {
     const now = Date.now();
-    for (const [key, item] of this.cache.entries()) {
-      if (now - item.timestamp > this.config.ttl) {
-        this.cache.delete(key);
-      }
-    }
-  }
-
-  set<T>(key: string, data: T) {
-    // Remove oldest item if cache is full
-    if (this.cache.size >= this.config.maxSize) {
-      const iterator = this.cache.keys();
-      const firstKey = iterator.next().value;
-      if (firstKey !== undefined) {
-        this.cache.delete(firstKey);
-      }
-    }
-
-    this.cache.set(key, {
-      data,
-      timestamp: Date.now()
-    });
-  }
-
-  get<T>(key: string): T | null {
-    const item = this.cache.get(key);
-    if (!item) return null;
-
-    // Check if item is expired
-    if (Date.now() - item.timestamp > this.config.ttl) {
+    if (now - cached.timestamp > this.maxAge) {
       this.cache.delete(key);
       return null;
     }
 
-    return item.data;
+    return cached.data;
   }
 
-  clear() {
-    this.cache.clear();
+  set(key: string, data: any): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
   }
 
-  delete(key: string) {
+  delete(key: string): void {
     this.cache.delete(key);
+  }
+
+  clear(): void {
+    this.cache.clear();
   }
 }
 
-// Create cache instance
-const requestCache = new RequestCache({
-  ttl: 5 * 60 * 1000, // 5 minutes
-  maxSize: 100
-});
+const requestCache = new RequestCache();
 
-// Add request timeout utility
+// Utility to get the auth token from localStorage
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem('authToken');
+}
+
+// Utility to set the auth token in localStorage
+export function setAuthToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem('authToken', token);
+}
+
+// Utility to remove the auth token from localStorage
+export function removeAuthToken(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('authToken');
+}
+
+// Utility to check if the user is authenticated
+export function isAuthenticated(): boolean {
+  return !!getAuthToken();
+}
+
+// Fetch with timeout utility
 async function fetchWithTimeout(
-  resource: string,
+  url: string,
   options: RequestInit & { timeout?: number } = {}
 ): Promise<Response> {
   const { timeout = DEFAULT_TIMEOUT, ...fetchOptions } = options;
@@ -188,61 +177,56 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
 
-  try {
-    const response = await fetch(resource, {
-      ...fetchOptions,
-      signal: controller.signal
-    });
-    clearTimeout(id);
-    return response;
-  } catch (error) {
-    clearTimeout(id);
-    throw error;
-  }
+  const response = await fetch(url, {
+    ...fetchOptions,
+    signal: controller.signal
+  });
+
+  clearTimeout(id);
+  return response;
 }
 
-// Helper function to handle API responses
-async function handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
-  const status = response.status;
-  
-  if (status >= 200 && status < 300) {
-    const data = await response.json();
-    return { data, error: null };
-  } else {
-    let error = 'An unexpected error occurred';
+// Process API response
+async function processResponse<T>(response: Response): Promise<ApiResponse<T>> {
+  // If the response is successful, parse and return the data
+  if (response.ok) {
     try {
-      const errorData = await response.json();
-      error = errorData.message || error;
-      
-      // Show error toast for non-successful responses
-      toast.error(error);
-      
-      // Handle specific status codes
-      if (status === 401) {
-        // Clear token and redirect to login
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('authToken');
-          window.location.href = '/login';
-        }
-      }
-    } catch (e) {
-      // If the response is not JSON, use the status text
-      error = response.statusText || error;
-      toast.error(error);
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      // Handle the case where the response is not JSON
+      return { data: null, error: 'Invalid JSON response' };
     }
-    return { data: null, error };
   }
+
+  // Handle error responses
+  let error = 'An error occurred';
+  const { status } = response;
+
+  try {
+    const errorData = await response.json();
+    error = errorData.message || error;
+    
+    // Show error toast for non-successful responses
+    // toast.error(error);
+    
+    // Handle specific status codes
+    if (status === 401) {
+      // Clear token and redirect to login
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('authToken');
+        window.location.href = '/login';
+      }
+    }
+  } catch (e) {
+    // If the response is not JSON, use the status text
+    error = response.statusText || error;
+    // toast.error(error);
+  }
+  return { data: null, error };
 }
 
-// Function to get auth token from localStorage
-function getAuthToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('authToken');
-  }
-  return null;
-}
-
-// Add request retry utility
+// Fetch with retry utility
 async function fetchWithRetry(
   url: string,
   options: RequestInit & { timeout?: number } = {},
@@ -264,28 +248,31 @@ async function fetchWithRetry(
   }
 }
 
-// Request cancellation and queue management
-const pendingRequests = new Map<string, AbortController>();
-
-function createRequestKey(endpoint: string, method: string): string {
-  return `${method}:${endpoint}`;
+// Debounce utility for search functions
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => Promise<ReturnType<T>> {
+  let timeout: NodeJS.Timeout | null = null;
+  
+  return function(...args: Parameters<T>): Promise<ReturnType<T>> {
+    return new Promise((resolve) => {
+      if (timeout) clearTimeout(timeout);
+      
+      timeout = setTimeout(() => {
+        const result = func(...args);
+        resolve(result);
+      }, wait);
+    });
+  };
 }
 
-function cancelPendingRequest(endpoint: string, method: string): void {
-  const key = createRequestKey(endpoint, method);
-  const controller = pendingRequests.get(key);
-  if (controller) {
-    controller.abort();
-    pendingRequests.delete(key);
-  }
-}
-
-// Update API request function with cancellation and caching support
-async function apiRequest<T>(
+// Main API request function
+export async function apiRequest<T = any>(
   endpoint: string,
   method: string = 'GET',
   data?: any,
-  customHeaders?: Record<string, string>,
+  headers?: Record<string, string>,
   options: {
     cancelPrevious?: boolean;
     timeout?: number;
@@ -302,133 +289,126 @@ async function apiRequest<T>(
     forceFresh = false
   } = options;
 
-  // Generate cache key
-  const cacheKey = `${method}:${endpoint}:${JSON.stringify(data || '')}`;
-
-  // Check cache if enabled and not forcing fresh data
-  if (cache && !forceFresh) {
-    const cachedData = requestCache.get<ApiResponse<T>>(cacheKey);
+  // Generate a cache key for GET requests
+  const cacheKey = method === 'GET' ? `${method}:${endpoint}` : null;
+  
+  // Check cache for GET requests if not forcing fresh data
+  if (cacheKey && cache && !forceFresh) {
+    const cachedData = requestCache.get(cacheKey);
     if (cachedData) {
-      return cachedData;
+      return { data: cachedData, error: null };
     }
   }
 
+  // Prepare headers
+  const requestHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...headers
+  };
+
+  // Add auth token if available
+  const token = getAuthToken();
+  if (token) {
+    requestHeaders['Authorization'] = `Bearer ${token}`;
+  }
+
+  // Prepare request options
+  const requestOptions: RequestInit & { timeout?: number } = {
+    method,
+    headers: requestHeaders,
+    credentials: 'include',
+    timeout
+  };
+
+  // Add body for non-GET requests
+  if (method !== 'GET' && data) {
+    requestOptions.body = JSON.stringify(data);
+  }
+
   try {
-    // Cancel previous request if needed
-    if (cancelPrevious) {
-      cancelPendingRequest(endpoint, method);
+    // Make the request
+    const url = `${API_BASE_URL}${endpoint}`;
+    const response = await fetchWithRetry(url, requestOptions, retries);
+    const result = await processResponse<T>(response);
+    
+    // Cache successful GET responses
+    if (cacheKey && cache && result.data) {
+      requestCache.set(cacheKey, result.data);
     }
-
-    const controller = new AbortController();
-    const key = createRequestKey(endpoint, method);
-    pendingRequests.set(key, controller);
-
-    const token = getAuthToken();
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-      ...customHeaders,
-    };
-
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const fetchOptions: RequestInit & { timeout?: number } = {
-      method,
-      headers,
-      credentials: 'include',
-      mode: 'cors',
-      signal: controller.signal,
-      timeout
-    };
-
-    if (data && method !== 'GET') {
-      fetchOptions.body = JSON.stringify(data);
-    }
-
-    const response = await fetchWithRetry(`${API_BASE_URL}${endpoint}`, fetchOptions, retries);
-    pendingRequests.delete(key);
-    const result = await handleResponse<T>(response);
-
-    // Cache successful responses if caching is enabled
-    if (cache && result.data && !result.error) {
-      requestCache.set(cacheKey, result);
-    }
-
+    
     return result;
   } catch (error) {
-    const key = createRequestKey(endpoint, method);
-    pendingRequests.delete(key);
-    console.error('API request failed:', error);
     return handleApiError(error);
   }
 }
 
-// Add request queue utility
-const requestQueue = new Map<string, Promise<any>>();
-
-async function queuedRequest<T>(
+// Queued request function for long-running operations
+export async function queuedRequest<T = any>(
   endpoint: string,
-  method: string = 'GET',
+  method: string = 'POST',
   data?: any,
-  customHeaders?: Record<string, string>,
+  headers?: Record<string, string>,
   options: {
     timeout?: number;
     retries?: number;
+    pollingInterval?: number;
+    maxPolls?: number;
   } = {}
 ): Promise<ApiResponse<T>> {
-  const key = createRequestKey(endpoint, method);
-  
-  // If there's already a request in progress, wait for it
-  if (requestQueue.has(key)) {
-    return requestQueue.get(key) as Promise<ApiResponse<T>>;
+  const { 
+    timeout = 10000,
+    retries = 1,
+    pollingInterval = 2000,
+    maxPolls = 15
+  } = options;
+
+  // Initial request to queue the job
+  const initialResponse = await apiRequest<{ jobId: string }>(
+    endpoint,
+    method,
+    data,
+    headers,
+    { timeout, retries }
+  );
+
+  if (initialResponse.error || !initialResponse.data?.jobId) {
+    return initialResponse as ApiResponse<T>;
   }
 
-  // Create new request and add to queue
-  const request = apiRequest<T>(endpoint, method, data, customHeaders, {
-    cancelPrevious: false,
-    ...options
-  });
-  requestQueue.set(key, request);
+  const jobId = initialResponse.data.jobId;
+  const statusEndpoint = `${endpoint}/status/${jobId}`;
 
-  try {
-    const response = await request;
-    requestQueue.delete(key);
-    return response;
-  } catch (error) {
-    requestQueue.delete(key);
-    throw error;
-  }
-}
+  // Poll for job completion
+  let pollCount = 0;
+  while (pollCount < maxPolls) {
+    await new Promise(resolve => setTimeout(resolve, pollingInterval));
+    pollCount++;
 
-// Add request debounce utility
-function debounce<T>(
-  fn: (...args: any[]) => Promise<T>,
-  wait: number
-): (...args: any[]) => Promise<T> {
-  let timeout: NodeJS.Timeout;
-  let pendingPromise: Promise<T> | null = null;
+    const statusResponse = await apiRequest<{ 
+      status: 'pending' | 'processing' | 'completed' | 'failed';
+      result?: T;
+      error?: string;
+    }>(statusEndpoint, 'GET');
 
-  return (...args: any[]): Promise<T> => {
-    if (pendingPromise) {
-      return pendingPromise;
+    if (statusResponse.error) {
+      return statusResponse as ApiResponse<T>;
     }
 
-    pendingPromise = new Promise((resolve, reject) => {
-      const later = () => {
-        timeout = undefined!;
-        pendingPromise = null;
-        fn(...args)
-          .then(resolve)
-          .catch(reject);
-      };
+    const { status, result, error } = statusResponse.data!;
 
-      clearTimeout(timeout);
-      timeout = setTimeout(later, wait);
-    });
+    if (status === 'completed' && result) {
+      return { data: result, error: null };
+    }
 
-    return pendingPromise;
-  };
+    if (status === 'failed') {
+      return { data: null, error: error || 'Job failed' };
+    }
+
+    // Continue polling for pending or processing status
+  }
+
+  // If we've reached max polls without completion
+  return { data: null, error: 'Operation timed out' };
 }
 
 // Auth API
@@ -446,55 +426,210 @@ export const authApi = {
 
 // User API
 export const userApi = {
-  getProfile: () => apiRequest<{ user: User }>('/users/profile', 'GET'),
-  updateProfile: (profileData: Partial<User>) => 
-    apiRequest<{ user: User; message: string }>('/users/profile', 'PUT', profileData),
+  getProfile: () => apiRequest<User>('/users/profile', 'GET'),
+  updateProfile: (profileData: Partial<User>) => apiRequest<User>('/users/profile', 'PUT', profileData),
+  changePassword: (passwordData: { currentPassword: string, newPassword: string }) => 
+    apiRequest('/users/change-password', 'POST', passwordData),
   uploadProfilePicture: (file: File) => 
-    uploadFile<{ url: string; message: string }>('/users/profile/picture', file, 'profilePicture'),
-  getAllUsers: () => apiRequest<{ users: User[] }>('/users', 'GET'),
-  getUserById: (id: string) => apiRequest<{ user: User }>(`/users/${id}`, 'GET'),
-  updateUser: (id: string, userData: Partial<User>) => 
-    apiRequest<{ user: User; message: string }>(`/users/${id}`, 'PUT', userData),
-  deleteUser: (id: string) => apiRequest(`/users/${id}`, 'DELETE'),
-  updatePreferences: (preferences: User['preferences']) =>
-    apiRequest<{ user: User; message: string }>('/users/preferences', 'PUT', { preferences }),
-  updateSocialLinks: (socialLinks: User['socialLinks']) =>
-    apiRequest<{ user: User; message: string }>('/users/social-links', 'PUT', { socialLinks }),
+    uploadFile<{ url: string }>('/users/profile/picture', file, 'image'),
+  getNotificationSettings: () => 
+    apiRequest<{ settings: User['preferences'] }>('/users/notification-settings', 'GET'),
+  updateNotificationSettings: (settings: Partial<User['preferences']>) => 
+    apiRequest<{ settings: User['preferences'] }>('/users/notification-settings', 'PUT', settings),
+  getUserActivity: () => 
+    apiRequest<{ activities: UserActivity[] }>('/users/activity', 'GET'),
+  deleteAccount: () => 
+    apiRequest('/users/account', 'DELETE'),
+  getUserById: (userId: User['id']) => 
+    apiRequest<User>(`/users/${userId}`, 'GET')
 };
 
 // Warranty API
 export const warrantyApi = {
-  getAllWarranties: () => apiRequest<{ warranties: Warranty[] }>('/warranties', 'GET'),
-  getWarrantyById: (id: string) => apiRequest<{ warranty: Warranty }>(`/warranties/${id}`, 'GET'),
-  createWarranty: (warrantyData: Omit<Warranty, 'id' | 'createdAt' | 'updatedAt'>) => 
-    apiRequest<{ warranty: Warranty }>('/warranties', 'POST', warrantyData),
+  getAllWarranties: async () => {
+    const response = await apiRequest<Warranty[] | { warranties: Warranty[] }>('/warranties', 'GET');
+    
+    // Handle both response formats (array or object with warranties property)
+    if (response.error) {
+      return { error: response.error, data: [] };
+    }
+    
+    // Check if response.data is an array or has a warranties property
+    const warranties = Array.isArray(response.data) 
+      ? response.data 
+      : (response.data as { warranties: Warranty[] }).warranties || [];
+      
+    return { data: warranties };
+  },
+  
+  getWarrantyById: async (id: string) => {
+    // Check if id is undefined or empty
+    if (!id || id === 'undefined') {
+      return { error: 'Invalid warranty ID' };
+    }
+    
+    const response = await apiRequest<Warranty | { warranty: Warranty }>(`/warranties/${id}`, 'GET');
+    
+    // Handle both response formats (object or object with warranty property)
+    if (response.error) {
+      return { error: response.error };
+    }
+    
+    // Check if response.data has a warranty property
+    const warranty = (response.data as { warranty?: Warranty }).warranty || response.data;
+    
+    return { data: warranty as Warranty };
+  },
+  
+  createWarranty: async (warrantyData: WarrantyInput) => {
+    try {
+      const response = await apiRequest<Warranty | { warranty: Warranty }>('/warranties', 'POST', warrantyData);
+      
+      // Handle both response formats (object or object with warranty property)
+      if (response.error) {
+        // Try to parse validation errors if present
+        let errorMessage = response.error;
+        
+        try {
+          // Check if the response contains a JSON string with validation errors
+          if (typeof response.error === 'string' && response.error.includes('Validation error')) {
+            const match = response.error.match(/{.*}/);
+            if (match) {
+              const errorObj = JSON.parse(match[0]);
+              if (errorObj.errors && Array.isArray(errorObj.errors)) {
+                // Return detailed validation errors
+                return { 
+                  error: 'Validation error', 
+                  validationErrors: errorObj.errors 
+                };
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing validation errors:', e);
+        }
+        
+        return { error: errorMessage };
+      }
+      
+      // Check if response.data has a warranty property
+      const warranty = (response.data as { warranty?: Warranty }).warranty || response.data;
+      
+      return { data: warranty as Warranty };
+    } catch (error) {
+      console.error('Error creating warranty:', error);
+      return { error: error instanceof Error ? error.message : 'Unknown error occurred' };
+    }
+  },
+  
   updateWarranty: (id: string, warrantyData: Partial<Warranty>) => 
     apiRequest<{ warranty: Warranty }>(`/warranties/${id}`, 'PUT', warrantyData),
-  deleteWarranty: (id: string) => apiRequest(`/warranties/${id}`, 'DELETE'),
-  getExpiringWarranties: () => apiRequest<{ warranties: Warranty[] }>('/warranties/expiring', 'GET'),
+  
+  deleteWarranty: (id: string) => 
+    apiRequest(`/warranties/${id}`, 'DELETE'),
+  
+  getExpiringWarranties: () => 
+    apiRequest<{ warranties: Warranty[] }>('/warranties/expiring', 'GET'),
+  
   uploadWarrantyDocument: (warrantyId: string, file: File) => 
     uploadFile<{ url: string }>(`/warranties/${warrantyId}/documents`, file, 'document'),
+  
   deleteWarrantyDocument: (warrantyId: string, documentId: string) => 
     apiRequest(`/warranties/${warrantyId}/documents/${documentId}`, 'DELETE'),
-  getWarrantyStats: () => apiRequest<{ stats: DashboardStats }>('/warranties/stats/overview', 'GET'),
+  
+  getWarrantyStats: () => 
+    apiRequest<{ stats: DashboardStats }>('/warranties/stats/overview', 'GET'),
+  
+  uploadDocument: async (file: File): Promise<WarrantyDocument | null> => {
+    try {
+      // Create a FormData object to send the file
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      // Get the JWT token
+      const token = getAuthToken();
+      
+      console.log('Token for API request:', token ? 'Token exists' : 'No token found');
+      
+      if (!token) {
+        console.error('Authentication token not found');
+        return null;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+        credentials: 'include',
+        body: formData
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to upload file');
+      }
+      
+      const data = await response.json();
+      return {
+        name: file.name,
+        path: data.filePath,
+        uploadDate: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      
+      // In development mode or if configured to use mock data, return a mock document
+      if (process.env.NODE_ENV === 'development' || process.env.NEXT_PUBLIC_USE_MOCK_DATA === 'true') {
+        return {
+          name: file.name,
+          path: `/uploads/mock-${file.name}`,
+          uploadDate: new Date().toISOString()
+        };
+      }
+      
+      return null;
+    }
+  }
 };
 
 // Product API
 export const productApi = {
-  getAllProducts: () => apiRequest<{ products: any[] }>('/products', 'GET'),
-  getProductById: (id: string) => apiRequest<{ product: any }>(`/products/${id}`, 'GET'),
-  createProduct: (productData: ProductData) => apiRequest<{ product: any }>('/products', 'POST', productData),
+  getAllProducts: async () => {
+    const response = await apiRequest<ProductData[] | { products: ProductData[] }>('/products', 'GET');
+    
+    // Handle both response formats (array or object with products property)
+    if (response.error) {
+      return { error: response.error, data: [] };
+    }
+    
+    // Check if response.data is an array or has a products property
+    const products = Array.isArray(response.data) 
+      ? response.data 
+      : (response.data as { products: ProductData[] }).products || [];
+      
+    return { data: products };
+  },
+  getProduct: async (productId: string) => {
+    const response = await apiRequest<ProductData | { product: ProductData }>(`/products/${productId}`, 'GET');
+    
+    // Handle both response formats
+    if (response.error) {
+      return { error: response.error };
+    }
+    
+    // Check if response.data has a product property
+    const product = (response.data as { product?: ProductData }).product || response.data;
+    
+    return { data: product as ProductData };
+  },
+  createProduct: (productData: ProductData) => 
+    apiRequest<{ product: ProductData }>('/products', 'POST', productData),
   updateProduct: (id: string, productData: Partial<ProductData>) => 
-    apiRequest<{ product: any }>(`/products/${id}`, 'PUT', productData),
-  deleteProduct: (id: string) => apiRequest(`/products/${id}`, 'DELETE'),
-  getProductCategories: () => apiRequest<{ categories: string[] }>('/products/categories', 'GET'),
+    apiRequest<{ product: ProductData }>(`/products/${id}`, 'PUT', productData),
+  deleteProduct: (id: string) => 
+    apiRequest(`/products/${id}`, 'DELETE'),
+  getProductCategories: () => 
+    apiRequest<{ categories: string[] }>('/products/categories', 'GET'),
   uploadProductImage: (productId: string, file: File) => 
     uploadFile<{ url: string }>(`/products/${productId}/image`, file, 'image'),
-  getProducts: (filters?: Record<string, string>) => {
-    const queryString = filters ? `?${new URLSearchParams(filters).toString()}` : '';
-    return apiRequest<ProductData[]>(`/products${queryString}`, 'GET');
-  },
-  getProduct: (productId: string) => apiRequest<ProductData>(`/products/${productId}`, 'GET'),
   searchProducts: debounce(async (query: string) => {
     return apiRequest<ProductData[]>(`/products/search?q=${encodeURIComponent(query)}`, 'GET');
   }, 300),
@@ -543,54 +678,64 @@ export const eventApi = {
   deleteEvent: (id: string) => apiRequest(`/events/${id}`, 'DELETE'),
   getEventsByMonth: (year: number, month: number) => 
     apiRequest<{ events: Event[] }>(`/events/month/${year}/${month}`, 'GET'),
-  getEventsByDate: (date: string) => 
-    apiRequest<{ events: Event[] }>(`/events/date/${date}`, 'GET'),
+  getUpcomingEvents: (limit: number = 5) => 
+    apiRequest<{ events: Event[] }>(`/events/upcoming?limit=${limit}`, 'GET'),
 };
 
 // Admin API
 export const adminApi = {
-  getDashboardStats: () => apiRequest<{ stats: DashboardStats }>('/admin/dashboard/stats', 'GET'),
-  getAllUsers: () => apiRequest<{ users: User[] }>('/admin/users', 'GET'),
-  updateUserRole: (id: string, role: User['role']) => 
-    apiRequest<{ user: User }>(`/admin/users/${id}/role`, 'PUT', { role }),
-  deleteUser: (id: string) => apiRequest(`/admin/users/${id}`, 'DELETE'),
-  getAllWarranties: () => apiRequest<{ warranties: Warranty[] }>('/admin/warranties', 'GET'),
-  getUserActivity: () => apiRequest<{ activities: UserActivity[] }>('/admin/activity', 'GET'),
-  getStats: () => apiRequest<{ stats: DashboardStats }>('/admin/stats', 'GET'),
-  getAllProducts: () => apiRequest<{ products: ProductData[] }>('/admin/products', 'GET'),
-  getAllEvents: () => apiRequest<{ events: Event[] }>('/admin/events', 'GET'),
-};
-
-// Health API
-export const healthApi = {
-  getHealthStatus: () => apiRequest<{ status: string; uptime: number }>('/health', 'GET'),
-  getDeepHealthStatus: () => apiRequest<{ status: string; services: any }>('/health/deep', 'GET'),
+  getDashboardStats: () => 
+    apiRequest<{ stats: DashboardStats }>('/admin/dashboard/stats', 'GET'),
+  getAllUsers: () => 
+    apiRequest<{ users: User[] }>('/admin/users', 'GET'),
+  getUserById: (userId: User['id']) => 
+    apiRequest<{ user: User }>(`/admin/users/${userId}`, 'GET'),
+  updateUser: (userId: User['id'], userData: Partial<User>) => 
+    apiRequest<{ user: User }>(`/admin/users/${userId}`, 'PUT', userData),
+  deleteUser: (userId: User['id']) => 
+    apiRequest(`/admin/users/${userId}`, 'DELETE'),
+  getAllWarranties: () => 
+    apiRequest<{ warranties: Warranty[] }>('/admin/warranties', 'GET'),
+  getWarrantyById: (warrantyId: string) => 
+    apiRequest<{ warranty: Warranty }>(`/admin/warranties/${warrantyId}`, 'GET'),
+  updateWarranty: (warrantyId: string, warrantyData: Partial<Warranty>) => 
+    apiRequest<{ warranty: Warranty }>(`/admin/warranties/${warrantyId}`, 'PUT', warrantyData),
+  deleteWarranty: (warrantyId: string) => 
+    apiRequest(`/admin/warranties/${warrantyId}`, 'DELETE'),
+  getSystemLogs: (page: number = 1, limit: number = 20) => 
+    apiRequest<{ logs: any[]; total: number; page: number; limit: number }>(
+      `/admin/logs?page=${page}&limit=${limit}`, 
+      'GET'
+    ),
+  getSystemHealth: () => 
+    apiRequest<{ status: string; uptime: number; memory: any; cpu: any }>(
+      '/admin/health', 
+      'GET'
+    ),
 };
 
 // Error handling utility
-export function handleApiError(error: unknown): ApiResponse {
-  console.error('API Error:', error);
-  
-  let errorMessage: string;
+function handleApiError(error: any): ApiResponse<any> {
+  let errorMessage = 'An error occurred';
   
   // Handle network errors
   if (error instanceof TypeError && error.message === 'Failed to fetch') {
     errorMessage = 'Network error. Please check your connection.';
-    toast.error(errorMessage);
+    // toast.error(errorMessage);
     return { data: null, error: errorMessage };
   }
   
   // Handle timeout errors
   if (error instanceof Error && error.name === 'AbortError') {
     errorMessage = 'Request timed out. Please try again.';
-    toast.error(errorMessage);
+    // toast.error(errorMessage);
     return { data: null, error: errorMessage };
   }
   
   // Handle authentication errors
   if (error instanceof Error && 'status' in error && (error as any).status === 401) {
     errorMessage = 'Your session has expired. Please log in again.';
-    toast.error(errorMessage);
+    // toast.error(errorMessage);
     // Clear token and redirect to login
     if (typeof window !== 'undefined') {
       localStorage.removeItem('authToken');
@@ -598,118 +743,103 @@ export function handleApiError(error: unknown): ApiResponse {
     }
     return { data: null, error: errorMessage };
   }
-
+  
   // Handle forbidden errors
   if (error instanceof Error && 'status' in error && (error as any).status === 403) {
     errorMessage = 'You do not have permission to perform this action.';
-    toast.error(errorMessage);
+    // toast.error(errorMessage);
     return { data: null, error: errorMessage };
   }
   
-  // Handle other errors
+  // Handle all other errors
   errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-  toast.error(errorMessage);
+  // toast.error(errorMessage);
   return { data: null, error: errorMessage };
 }
 
-// Update file upload function with cancellation support
-async function uploadFile<T>(
+// File upload utility
+export async function uploadFile<T = any>(
   endpoint: string,
   file: File,
-  fieldName: string = 'file',
-  additionalData?: Record<string, string>,
-  onProgress?: (progress: number) => void,
-  signal?: AbortSignal
+  fileFieldName: string = 'file'
 ): Promise<ApiResponse<T>> {
-  try {
-    const token = getAuthToken();
+  return new Promise((resolve) => {
     const formData = new FormData();
-    formData.append(fieldName, file);
-
-    if (additionalData) {
-      Object.entries(additionalData).forEach(([key, value]) => {
-        formData.append(key, value);
-      });
-    }
-
-    const xhr = new XMLHttpRequest();
+    formData.append(fileFieldName, file);
     
-    // Handle upload progress
-    if (onProgress) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = (event.loaded / event.total) * 100;
-          onProgress(progress);
-        }
-      };
+    const token = getAuthToken();
+    
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_BASE_URL}${endpoint}`, true);
+    
+    // Set headers
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
-
-    // Handle cancellation
-    if (signal) {
-      signal.addEventListener('abort', () => xhr.abort());
-    }
-
-    return new Promise((resolve, reject) => {
-      xhr.open('POST', `${UPLOAD_BASE_URL}${endpoint}`);
-      
-      if (token) {
-        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      }
-
-      xhr.onload = () => {
+    
+    // Set timeout
+    xhr.timeout = 30000; // 30 seconds
+    
+    // Handle response
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
         try {
-          const response = JSON.parse(xhr.response);
-          
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve({ data: response, error: null });
-          } else {
-            const errorMessage = response.message || response.error || xhr.statusText || 'Upload failed';
-            toast.error(errorMessage);
-            resolve({ data: null, error: errorMessage });
-          }
+          const response = JSON.parse(xhr.responseText);
+          resolve({ data: response, error: null });
         } catch (parseError) {
-          // Handle non-JSON responses
           const errorMessage = xhr.status === 404 
             ? `Upload endpoint not found: ${endpoint}`
             : `Upload failed: ${xhr.statusText || 'Unknown error'}`;
-          toast.error(errorMessage);
+          // toast.error(errorMessage);
           resolve({ data: null, error: errorMessage });
         }
       };
-
+      
       xhr.onerror = () => {
         const errorMessage = 'Network error during upload';
-        toast.error(errorMessage);
+        // toast.error(errorMessage);
         resolve({ data: null, error: errorMessage });
       };
-
+      
       xhr.ontimeout = () => {
         const errorMessage = 'Upload request timed out';
-        toast.error(errorMessage);
+        // toast.error(errorMessage);
         resolve({ data: null, error: errorMessage });
       };
-
+      
       xhr.onabort = () => {
         const errorMessage = 'Upload was cancelled';
-        toast.error(errorMessage);
+        // toast.error(errorMessage);
         resolve({ data: null, error: errorMessage });
       };
-
+      
+      // Track upload progress
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentComplete = Math.round((event.loaded / event.total) * 100);
+          console.log(`Upload progress: ${percentComplete}%`);
+        }
+      };
+      
+      // Send the form data
       xhr.send(formData);
-    });
-  } catch (error) {
-    console.error('File upload failed:', error);
-    return handleApiError(error);
-  }
+    };
+  });
 }
 
-export default {
-  auth: authApi,
-  user: userApi,
-  warranty: warrantyApi,
-  product: productApi,
-  event: eventApi,
-  admin: adminApi,
-  health: healthApi,
-  handleApiError,
-}; 
+// Mock data utility for development
+export function getMockData<T>(endpoint: string, mockData: T): ApiResponse<T> {
+  console.log(`[MOCK] GET ${endpoint}`);
+  return { data: mockData, error: null };
+}
+
+// Logout utility
+export function logout(): void {
+  removeAuthToken();
+  // Call the logout API endpoint
+  authApi.logout().catch(console.error);
+  // Redirect to login page
+  if (typeof window !== 'undefined') {
+    window.location.href = '/login';
+  }
+}

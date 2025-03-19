@@ -9,9 +9,11 @@ const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const logger = require('./config/logger');
+const swaggerConfig = require('./config/swagger');
 
-// Load default environment variables first
-dotenv.config();
+// Load environment variables based on NODE_ENV first
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
+dotenv.config({ path: path.resolve(process.cwd(), '../', envFile) });
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');
@@ -25,9 +27,10 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Load environment variables based on NODE_ENV
-const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
-dotenv.config({ path: path.resolve(process.cwd(), envFile) });
+// Load local environment variables if they exist
+if (fs.existsSync(path.resolve(process.cwd(), '../.env.local'))) {
+  dotenv.config({ path: path.resolve(process.cwd(), '../.env.local') });
+}
 
 // Import routes
 const authRoutes = require('./routes/auth.routes');
@@ -37,6 +40,7 @@ const productRoutes = require('./routes/product.routes');
 const eventRoutes = require('./routes/event.routes');
 const adminRoutes = require('./routes/admin.routes');
 const healthRoutes = require('./routes/health.routes');
+const uploadRoutes = require('./routes/upload.routes');
 
 // Initialize express app
 const app = express();
@@ -84,6 +88,16 @@ if (process.env.NODE_ENV === 'production') {
 
 // Static files
 app.use('/uploads', express.static(path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads')));
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Swagger API Documentation
+app.use('/api-docs', swaggerConfig.serve, swaggerConfig.setup);
+
+// Serve Swagger JSON
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerConfig.spec);
+});
 
 // Define routes
 app.use('/api/auth', authRoutes);
@@ -93,6 +107,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/events', eventRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/health', healthRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -176,4 +191,4 @@ connectDB().then(() => {
   });
 });
 
-module.exports = app; // For testing purposes 
+module.exports = app; // For testing purposes

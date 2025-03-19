@@ -13,23 +13,24 @@ import { ArrowLeft, Save, Loader2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { toast } from "sonner"
 
-// Mock product data
-const mockProduct = {
-  id: 3,
-  name: "MacBook Pro 16\"",
-  category: "Electronics",
-  brand: "Apple",
-  model: "MacBook Pro M1 Pro",
-  serialNumber: "C2C3456789",
-  purchaseDate: "2022-08-05",
-  price: 2499.99,
-  warrantyStatus: "expiring",
-  warrantyEndDate: "2023-08-05",
-  description: "16-inch MacBook Pro with M1 Pro chip, 16GB RAM, 512GB SSD",
-  notes: "Customer reported minor screen issue in June 2023, but did not file warranty claim.",
-  userId: 2,
-  userName: "Jane Smith",
-  userEmail: "jane.smith@example.com"
+// Import API and types
+import { productApi } from '@/lib/api'
+
+interface Product {
+  id: string
+  name: string
+  category: string
+  manufacturer?: string
+  model?: string
+  serialNumber: string
+  purchaseDate?: string
+  price?: string
+  purchaseLocation?: string
+  receiptNumber?: string
+  description?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
 }
 
 // Product categories
@@ -49,15 +50,15 @@ const categories = [
 interface FormData {
   name: string;
   category: string;
-  brand: string;
+  manufacturer: string;
   model: string;
   serialNumber: string;
   purchaseDate: string;
   price: string;
+  purchaseLocation: string;
+  receiptNumber: string;
   description: string;
   notes: string;
-  userId: string;
-  userName: string;
 }
 
 interface Props {
@@ -67,21 +68,34 @@ interface Props {
 export default function AdminEditProductForm({ productId }: Props) {
   const router = useRouter()
   const { user: authUser, isAuthenticated, isLoading: authLoading } = useAuth()
+  
+  const handleCancel = () => {
+    router.back()
+  }
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [product, setProduct] = useState<Product | null>(null)
   const [formData, setFormData] = useState<FormData>({
     name: "",
     category: "",
-    brand: "",
+    manufacturer: "",
     model: "",
     serialNumber: "",
     purchaseDate: "",
     price: "",
+    purchaseLocation: "",
+    receiptNumber: "",
     description: "",
-    notes: "",
-    userId: "",
-    userName: ""
+    notes: ""
   })
+
+  // Validate product ID
+  useEffect(() => {
+    if (!productId) {
+      toast.error('Invalid product ID')
+      router.replace('/admin/products')
+    }
+  }, [productId, router])
   
   // Check if admin is logged in and fetch product data
   useEffect(() => {
@@ -92,24 +106,51 @@ export default function AdminEditProductForm({ productId }: Props) {
       return
     }
 
-    // In a real app, you would fetch the product data based on the ID
-    console.log(`Fetching product with ID: ${productId} for editing`)
+    if (!productId) {
+      router.replace('/admin/products')
+      return
+    }
+
+    // Fetch the product data
+    const fetchProduct = async () => {
+      try {
+        const response = await productApi.getProductById(productId)
+        if (response.error) {
+          toast.error('Failed to fetch product: ' + response.error)
+          router.replace('/admin/products')
+          return
+        }
+        if (response.data?.product) {
+          const product = response.data.product as Product
+          setProduct(product)
+          setFormData({
+            name: product.name,
+            category: product.category,
+            manufacturer: product.manufacturer || "",
+            model: product.model || "",
+            serialNumber: product.serialNumber,
+            purchaseDate: product.purchaseDate || "",
+            price: product.price || "",
+            purchaseLocation: product.purchaseLocation || "",
+            receiptNumber: product.receiptNumber || "",
+            description: product.description || "",
+            notes: product.notes || ""
+          })
+        } else {
+          toast.error('Product not found')
+          router.replace('/admin/products')
+          return
+        }
+      } catch (error) {
+        console.error('Error fetching product:', error)
+        toast.error('Failed to fetch product details')
+        router.replace('/admin/products')
+      } finally {
+        setIsLoading(false)
+      }
+    }
     
-    // Set mock data
-    setFormData({
-      name: mockProduct.name,
-      category: mockProduct.category,
-      brand: mockProduct.brand,
-      model: mockProduct.model,
-      serialNumber: mockProduct.serialNumber,
-      purchaseDate: mockProduct.purchaseDate,
-      price: mockProduct.price.toString(),
-      description: mockProduct.description || "",
-      notes: mockProduct.notes || "",
-      userId: mockProduct.userId.toString(),
-      userName: mockProduct.userName
-    })
-    setIsLoading(false)
+    fetchProduct()
   }, [router, productId, authLoading, isAuthenticated, authUser])
   
   // Handle form input changes
@@ -129,11 +170,11 @@ export default function AdminEditProductForm({ productId }: Props) {
     setIsSaving(true)
     
     try {
-      // In a real app, you would send the updated data to your backend
-      console.log("Submitting updated product data:", formData)
-      
-      // Wait for console to flush and state to update
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Send the updated data to the backend
+      const response = await productApi.updateProduct(productId, formData)
+      if (response.error) {
+        throw new Error(response.error)
+      }
       
       toast.success("Product updated successfully!")
       
@@ -214,11 +255,11 @@ export default function AdminEditProductForm({ productId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="brand" className="text-amber-900">Brand</Label>
+                    <Label htmlFor="manufacturer" className="text-amber-900">Manufacturer</Label>
                     <Input
-                      id="brand"
-                      name="brand"
-                      value={formData.brand}
+                      id="manufacturer"
+                      name="manufacturer"
+                      value={formData.manufacturer}
                       onChange={handleChange}
                       className="border-2 border-amber-800 bg-amber-50"
                     />
@@ -296,25 +337,22 @@ export default function AdminEditProductForm({ productId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="userId" className="text-amber-900">
-                      User ID <span className="text-red-500">*</span>
-                    </Label>
+                    <Label htmlFor="purchaseLocation" className="text-amber-900">Purchase Location</Label>
                     <Input
-                      id="userId"
-                      name="userId"
-                      value={formData.userId}
+                      id="purchaseLocation"
+                      name="purchaseLocation"
+                      value={formData.purchaseLocation}
                       onChange={handleChange}
                       className="border-2 border-amber-800 bg-amber-50"
-                      required
                     />
                   </div>
                   
                   <div className="space-y-2">
-                    <Label htmlFor="userName" className="text-amber-900">User Name</Label>
+                    <Label htmlFor="receiptNumber" className="text-amber-900">Receipt Number</Label>
                     <Input
-                      id="userName"
-                      name="userName"
-                      value={formData.userName}
+                      id="receiptNumber"
+                      name="receiptNumber"
+                      value={formData.receiptNumber}
                       onChange={handleChange}
                       className="border-2 border-amber-800 bg-amber-50"
                     />
@@ -324,11 +362,14 @@ export default function AdminEditProductForm({ productId }: Props) {
             </CardContent>
             
             <CardFooter className="bg-amber-200 border-t-4 border-amber-800 px-6 py-4 flex justify-between">
-              <Link href={`/admin/products/${productId}`}>
-                <Button variant="outline" className="border-2 border-amber-800 text-amber-800">
-                  Cancel
-                </Button>
-              </Link>
+              <Button 
+                type="button"
+                variant="outline" 
+                className="border-2 border-amber-800 text-amber-800"
+                onClick={() => router.back()}
+              >
+                Cancel
+              </Button>
               
               <Button 
                 type="submit"
