@@ -26,6 +26,9 @@ interface ProfileUpdateData {
   preferences?: {
     emailNotifications?: boolean;
     reminderDays?: number;
+    theme?: string;
+    notifications?: boolean;
+    language?: string;
   };
 }
 
@@ -73,12 +76,12 @@ function validateProfileData(data: ProfileUpdateData): { isValid: boolean; error
 
   // Validate social links
   if (data.socialLinks) {
-    const urlRegex = /^[a-zA-Z0-9_-]{1,50}$/;
-    for (const [platform, username] of Object.entries(data.socialLinks)) {
-      if (username && !urlRegex.test(username)) {
+    const urlRegex = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+    for (const [platform, url] of Object.entries(data.socialLinks)) {
+      if (url && !urlRegex.test(url)) {
         return {
           isValid: false,
-          error: `Invalid ${platform} username. Use only letters, numbers, underscores, and hyphens.`
+          error: `Invalid ${platform} URL. Please enter a valid URL starting with http:// or https://`
         };
       }
     }
@@ -258,74 +261,100 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updateProfile = async (profileData: ProfileUpdateData): Promise<boolean> => {
-    setIsLoading(true);
     try {
       // Validate profile data
-      const validation = validateProfileData(profileData);
-      if (!validation.isValid) {
-        toast.error(validation.error);
+      if (!validateProfileData(profileData)) {
+        toast.error("Invalid profile data");
         return false;
       }
 
-      console.log('Updating profile with:', profileData);
-
-      // Transform preferences data
+      // Transform preferences data to match API requirements
       const transformedData = {
         ...profileData,
-        preferences: profileData.preferences ? {
-          emailNotifications: Boolean(profileData.preferences.emailNotifications),
-          reminderDays: Number(profileData.preferences.reminderDays) || 30
-        } : undefined
+        preferences: {
+          emailNotifications: profileData.preferences?.emailNotifications ?? true,
+          reminderDays: profileData.preferences?.reminderDays ?? 30,
+          notifications: Boolean(profileData.preferences?.notifications) || undefined
+        }
       };
 
-      // First try to update profile
+      // Transform social links to ensure they are valid URLs or undefined
+      if (transformedData.socialLinks) {
+        const transformedSocialLinks: Record<string, string | undefined> = {};
+        
+        for (const [platform, value] of Object.entries(transformedData.socialLinks)) {
+          if (!value) {
+            // If the value is empty, set it to undefined
+            transformedSocialLinks[platform] = undefined;
+          } else if (!value.startsWith('http')) {
+            // If it's not a full URL, construct one based on the platform
+            const baseUrls: Record<string, string> = {
+              twitter: 'https://twitter.com/',
+              linkedin: 'https://linkedin.com/in/',
+              github: 'https://github.com/',
+              instagram: 'https://instagram.com/'
+            };
+            transformedSocialLinks[platform] = `${baseUrls[platform]}${value}`;
+          } else {
+            // If it's already a full URL, use it as is
+            transformedSocialLinks[platform] = value;
+          }
+        }
+        
+        transformedData.socialLinks = transformedSocialLinks;
+      }
+
+      console.log('Sending profile update:', transformedData);
       const response = await userApi.updateProfile(transformedData);
-      
+      console.log('Profile update response:', response);
+
       if (response.error) {
-        console.error('Profile update error:', response.error);
+        // Handle validation errors
+        if (response.error.includes('validation failed')) {
+          const errorMessages = response.error.split(', ');
+          toast.error(errorMessages.join('\n'));
+          return false;
+        }
         toast.error(response.error);
         return false;
       }
-      
-      if (!response.data?.user) {
-        console.error('No user data in response');
-        toast.error('Failed to update profile');
-        return false;
+
+      const updatedUser = response.data;
+      if (updatedUser) {
+        // Update local user state with the new data
+        setUser(prevUser => {
+          if (!prevUser) return updatedUser;
+          
+          // Create a new user object with all the updated fields
+          const newUser = {
+            ...prevUser,
+            name: updatedUser.name || prevUser.name,
+            phone: updatedUser.phone || prevUser.phone,
+            bio: updatedUser.bio || prevUser.bio,
+            socialLinks: updatedUser.socialLinks || prevUser.socialLinks,
+            preferences: {
+              ...prevUser.preferences,
+              ...updatedUser.preferences
+            }
+          };
+
+          // Force a re-render by creating a new object
+          return { ...newUser };
+        });
+
+        // Force a refresh of the user data
+        await refreshUser();
+        
+        toast.success("Profile updated successfully");
+        return true;
       }
 
-      // Update local user state
-      setUser(currentUser => {
-        if (!currentUser) return response.data!.user;
-        
-        return {
-          ...currentUser,
-          ...response.data!.user,
-          socialLinks: {
-            ...currentUser.socialLinks,
-            ...response.data!.user.socialLinks
-          },
-          preferences: {
-            ...currentUser.preferences,
-            ...response.data!.user.preferences
-          }
-        };
-      });
-
-      // Show success message
-      toast.success(response.data.message || 'Profile updated successfully');
-      
-      // Refresh user data in background
-      refreshUser().catch(error => {
-        console.error('Failed to refresh user data:', error);
-      });
-
-      return true;
-    } catch (error) {
-      console.error('Profile update failed:', error);
-      toast.error('Profile update failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      toast.error("Failed to update profile");
       return false;
-    } finally {
-      setIsLoading(false);
+    } catch (error) {
+      console.error("Profile update error:", error);
+      toast.error("An unexpected error occurred");
+      return false;
     }
   };
 

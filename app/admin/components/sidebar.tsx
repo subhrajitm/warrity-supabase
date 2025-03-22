@@ -28,7 +28,8 @@ import {
   LineChart,
   Cog,
   Bell,
-  Shield
+  Shield,
+  History
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
@@ -294,6 +295,16 @@ export default function AdminSidebar() {
               >
                 <LineChart className="mr-2 h-4 w-4" />
                 User Analytics
+              </Button>
+            </Link>
+            <Link href="/admin/logs">
+              <Button 
+                variant="ghost" 
+                size="sm"
+                className={`w-full justify-start ${isActive('/admin/logs') ? 'bg-amber-900 text-amber-50' : 'text-amber-100 hover:bg-amber-700'}`}
+              >
+                <History className="mr-2 h-4 w-4" />
+                Admin Logs
               </Button>
             </Link>
           </CollapsibleContent>

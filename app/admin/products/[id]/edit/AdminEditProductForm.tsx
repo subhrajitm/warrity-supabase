@@ -114,14 +114,14 @@ export default function AdminEditProductForm({ productId }: Props) {
     // Fetch the product data
     const fetchProduct = async () => {
       try {
-        const response = await productApi.getProductById(productId)
+        const response = await productApi.getProduct(productId)
         if (response.error) {
           toast.error('Failed to fetch product: ' + response.error)
           router.replace('/admin/products')
           return
         }
-        if (response.data?.product) {
-          const product = response.data.product as Product
+        if (response.data) {
+          const product = response.data as Product
           setProduct(product)
           setFormData({
             name: product.name,
@@ -178,8 +178,13 @@ export default function AdminEditProductForm({ productId }: Props) {
       
       toast.success("Product updated successfully!")
       
-      // Navigate to details page
-      router.push(`/admin/products/${productId}`)
+      // First refresh the router cache
+      router.refresh()
+      
+      // Then navigate to the details page with a small delay to ensure cache is cleared
+      setTimeout(() => {
+        router.push(`/admin/products/${productId}`)
+      }, 100)
     } catch (error) {
       console.error('Error updating product:', error)
       toast.error("Failed to update product. Please try again.")

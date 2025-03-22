@@ -59,33 +59,35 @@ const createEvent = async (req, res) => {
     const {
       title,
       description,
-      eventType,
-      startDate,
-      endDate,
+      date,
+      type,
+      warranty,
       allDay,
       location,
       color,
-      relatedProduct,
-      relatedWarranty,
       notifications
     } = req.body;
     
-    // Create event
-    const event = new Event({
+    // Transform validated data to match model schema
+    const eventData = {
       user: req.user._id,
       title,
-      description,
-      eventType,
-      startDate,
-      endDate,
-      allDay,
-      location,
-      color,
-      relatedProduct,
-      relatedWarranty,
-      notifications
-    });
+      description: description || '',
+      eventType: type === 'expiration' ? 'warranty' : type,
+      startDate: new Date(date),
+      endDate: new Date(date), // For now, using same date for both
+      allDay: allDay || false,
+      location: location || '',
+      color: color || '#3498db',
+      relatedWarranty: warranty,
+      notifications: notifications || {
+        enabled: true,
+        reminderTime: 24
+      }
+    };
     
+    // Create event
+    const event = new Event(eventData);
     await event.save();
     
     res.status(201).json({

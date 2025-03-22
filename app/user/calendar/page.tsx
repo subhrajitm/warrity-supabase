@@ -12,35 +12,51 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Calendar as CalendarIcon, Shield, Wrench, AlertTriangle, Info, Plus, Trash2 } from "lucide-react"
+import { ArrowLeft, Calendar as CalendarIcon, Shield, Wrench, AlertTriangle, Info, Plus, Trash2, Loader2 } from "lucide-react"
 import WarrantySidebar from "../warranties/components/sidebar"
 import { useAuth } from "@/lib/auth-context"
-import { eventApi, productApi } from "@/lib/api"
+import { 
+  ApiCache, 
+  createApiRequest, 
+  apiEndpoints,
+  handleApiError 
+} from "@/lib/api-utils"
 
-// Define the API event interface to match the backend model
-interface ApiEvent {
+// Define the event type
+interface CalendarEvent {
   _id: string;
   title: string;
   description: string;
   eventType: string;
   startDate: string;
-  endDate: string;
+  endDate?: string;
   allDay: boolean;
   location?: string;
   color?: string;
-  category?: string;
-  relatedProduct?: string | { _id: string; name: string };
-  relatedWarranty?: string | { _id: string; name: string };
+  relatedProduct?: string;
+  relatedWarranty?: string;
   notifications?: {
     enabled: boolean;
     reminderTime: number;
   };
+  date?: string;
+  type?: string;
+  productId?: string;
+  productName?: string;
+  time?: string;
+  reminder?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
 
-// Define the API product interface
-interface ApiProduct {
+// Extended interface for API responses that may include object references
+interface ApiCalendarEvent extends Omit<CalendarEvent, 'relatedProduct' | 'relatedWarranty'> {
+  relatedProduct?: string | { _id: string; name: string };
+  relatedWarranty?: string | { _id: string; name: string };
+}
+
+// Define the product type
+interface Product {
   _id: string;
   name: string;
   description?: string;
@@ -49,24 +65,13 @@ interface ApiProduct {
   model?: string;
 }
 
-// Define the event type
-interface CalendarEvent {
-  id: string;
-  _id: string;
-  title: string;
-  date: string;
-  type: string;
-  productId: string;
-  productName: string;
-  description?: string;
-  time?: string;
-  reminder?: boolean;
-  startDate: string;
-  endDate: string;
-  eventType: string;
-  allDay: boolean;
-  relatedProduct?: string;
-  relatedWarranty?: string;
+// Define the API response type
+interface ApiResponse<T> {
+  data?: T;
+  events?: T;
+  products?: T;
+  error?: string;
+  message?: string;
 }
 
 export default function CalendarPage() {
@@ -77,127 +82,273 @@ export default function CalendarPage() {
   const [filterType, setFilterType] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [newEvent, setNewEvent] = useState<Omit<CalendarEvent, 'id' | '_id'>>({
+  const [newEvent, setNewEvent] = useState<Omit<CalendarEvent, '_id'>>({
     title: "",
-    date: new Date().toISOString().split('T')[0],
-    type: "warranty",
-    productId: "",
-    productName: "",
     description: "",
-    time: "09:00",
-    reminder: true,
-    startDate: new Date().toISOString(),
-    endDate: new Date().toISOString(),
-    eventType: "warranty",
-    allDay: false
+    eventType: "expiration",
+    startDate: new Date().toISOString().split('T')[0],
+    allDay: true,
+    color: "#3498db",
+    notifications: {
+      enabled: true,
+      reminderTime: 24
+    }
   })
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [products, setProducts] = useState<{id: string, name: string}[]>([])
-
-  // Fetch events from API
-  const fetchEvents = async () => {
-    try {
-      setIsLoading(true)
-      
-      // Use the eventApi to fetch events
-      const response = await eventApi.getAllEvents()
-      
-      if (response.error) {
-        throw new Error(response.error)
-      }
-      
-      // Transform API data to match our component's expected format
-      const formattedEvents = (response.data?.events || []).map((event: ApiEvent) => ({
-        id: event._id,
-        _id: event._id,
-        title: event.title,
-        date: new Date(event.startDate).toISOString().split('T')[0],
-        type: event.eventType,
-        productId: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct || "",
-        productName: typeof event.relatedProduct === 'object' ? event.relatedProduct.name : "",
-        description: event.description,
-        time: event.allDay ? "00:00" : new Date(event.startDate).toTimeString().slice(0, 5),
-        reminder: event.notifications?.enabled || false,
-        startDate: event.startDate,
-        endDate: event.endDate,
-        eventType: event.eventType,
-        allDay: event.allDay,
-        relatedProduct: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct,
-        relatedWarranty: typeof event.relatedWarranty === 'object' ? event.relatedWarranty._id : event.relatedWarranty
-      }))
-      
-      return formattedEvents
-    } catch (err) {
-      console.error('Error fetching events:', err)
-      return []
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
+  
+  // Handle product selection
+  const [products, setProducts] = useState<Product[]>([])
+  const [isProductsLoading, setIsProductsLoading] = useState(true)
+  
+  const [isCreating, setIsCreating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  
   // Fetch products from API
   const fetchProducts = async () => {
     try {
-      // Use the productApi to fetch products
-      const response = await productApi.getAllProducts()
+      setIsProductsLoading(true);
       
-      if (response.error) {
-        throw new Error(response.error)
+      const data = await ApiCache.fetchWithCache<ApiResponse<Product[]>>(
+        apiEndpoints.products.list,
+        createApiRequest(apiEndpoints.products.list)
+      );
+      
+      if (data.error) {
+        console.error('Error fetching products:', data.error);
+        return;
       }
-      
-      return (response.data?.products || []).map((product: ApiProduct) => ({
-        id: product._id,
-        name: product.name
-      }))
-    } catch (err) {
-      console.error('Error fetching products:', err)
-      return []
-    }
-  }
 
+      // Handle different response formats
+      let productsData: Product[] = [];
+      
+      if (Array.isArray(data.data)) {
+        productsData = data.data;
+      } else if (Array.isArray(data.products)) {
+        productsData = data.products;
+      } else {
+        console.error('Unexpected data format:', data);
+      }
+
+      // Process and normalize product data
+      const normalizedProducts = productsData.map((product: Product) => ({
+        ...product,
+        name: product.name || 'Unnamed Product',
+        description: product.description || '',
+        category: product.category || 'Uncategorized'
+      }));
+      
+      setProducts(normalizedProducts);
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setIsProductsLoading(false);
+    }
+  };
+  
   // Check if user is logged in and fetch events
   useEffect(() => {
+    console.log('Auth state changed:', { authLoading, isAuthenticated });
+    
     if (!authLoading) {
       if (!isAuthenticated) {
-        router.replace('/login')
-      } else if (user && user.role !== 'user') {
-        router.replace(user.role === 'admin' ? '/admin' : '/login')
+        console.log('User not authenticated, redirecting to login');
+        router.push('/login');
       } else {
-        // Fetch real data from API
-        Promise.all([fetchEvents(), fetchProducts()]).then(([eventsData, productsData]) => {
-          setEvents(eventsData)
-          setProducts(productsData)
-        })
+        console.log('User authenticated, initializing data');
+        initializeData();
       }
-      setIsLoading(false)
     }
-  }, [router, authLoading, isAuthenticated, user])
+  }, [authLoading, isAuthenticated, router]);
+  
+  // Add a function to initialize data
+  const initializeData = async () => {
+    console.log('Initializing calendar data');
+    try {
+      await Promise.all([
+        fetchEvents(),
+        fetchProducts()
+      ]);
+      
+      // After fetching events, set the selected date to today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      setSelectedDate(today);
+      
+      console.log('Calendar data initialized:', {
+        selectedDate: today.toISOString(),
+        filterType,
+        totalEvents: events.length
+      });
+    } catch (error) {
+      console.error('Error initializing calendar data:', error);
+    }
+  };
+  
+  // Fetch events from API
+  const fetchEvents = async () => {
+    try {
+      setIsLoading(true);
+      console.log('Fetching events from:', apiEndpoints.events.list);
+      
+      const data = await ApiCache.fetchWithCache<ApiResponse<CalendarEvent[]>>(
+        apiEndpoints.events.list,
+        createApiRequest(apiEndpoints.events.list)
+      );
+      
+      console.log('Raw API response:', JSON.stringify(data, null, 2));
+      
+      if (data.error) {
+        console.error('Error in API response:', data.error);
+        return;
+      }
 
+      // Handle different response formats
+      let eventsData: CalendarEvent[] = [];
+      
+      if (Array.isArray(data.events)) {
+        console.log('Found events in data.events:', data.events.length);
+        eventsData = data.events;
+      } else if (Array.isArray(data.data)) {
+        console.log('Found events in data.data:', data.data.length);
+        eventsData = data.data;
+      } else {
+        console.error('Unexpected data format:', data);
+        console.error('data.events type:', typeof data.events);
+        console.error('data.data type:', typeof data.data);
+      }
+
+      // Process and normalize event data
+      const normalizedEvents = eventsData.map((event: CalendarEvent) => {
+        console.log('Processing event:', event);
+        const eventDate = new Date(event.startDate);
+        // Keep the original time if it's not an all-day event
+        if (!event.allDay) {
+          eventDate.setHours(0, 0, 0, 0);
+        }
+        
+        return {
+          ...event,
+          startDate: eventDate.toISOString(),
+          color: event.color || '#3498db'
+        };
+      });
+      
+      console.log('Setting normalized events:', normalizedEvents.length);
+      setEvents(normalizedEvents);
+      
+      // Set the selected date to today if no date is selected
+      if (!selectedDate) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        setSelectedDate(today);
+      }
+      
+      // Log the current state after setting events
+      console.log('Current state after setting events:', {
+        selectedDate: selectedDate.toISOString(),
+        filterType,
+        totalEvents: normalizedEvents.length,
+        events: normalizedEvents.map(e => ({
+          title: e.title,
+          date: e.startDate,
+          type: e.eventType
+        }))
+      });
+    } catch (err) {
+      console.error('Error fetching events:', err);
+      if (err instanceof Error) {
+        console.error('Error details:', {
+          message: err.message,
+          stack: err.stack
+        });
+        if (err.message === 'Unauthorized') {
+          router.push('/login');
+        } else {
+          alert(`Failed to fetch events: ${err.message}`);
+        }
+      } else {
+        alert('Failed to fetch events: Unknown error');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   // Filter events based on selected date and filter type
   const filteredEvents = events.filter(event => {
-    const eventDate = new Date(event.date)
-    const isSameDay = 
-      eventDate.getDate() === selectedDate.getDate() &&
-      eventDate.getMonth() === selectedDate.getMonth() &&
-      eventDate.getFullYear() === selectedDate.getFullYear()
+    // Convert dates to local timezone for comparison
+    const eventDate = new Date(event.startDate);
+    const selectedDateObj = new Date(selectedDate);
     
-    return isSameDay && (filterType === "all" || event.type === filterType)
-  })
-
+    // Format dates to YYYY-MM-DD for comparison
+    const eventDateStr = eventDate.toISOString().split('T')[0];
+    const selectedDateStr = selectedDateObj.toISOString().split('T')[0];
+    
+    const isSameDay = eventDateStr === selectedDateStr;
+    const matchesFilter = filterType === "all" || event.eventType === filterType;
+    
+    console.log('Filtering event:', {
+      eventTitle: event.title,
+      eventDate: eventDateStr,
+      selectedDate: selectedDateStr,
+      eventType: event.eventType,
+      filterType,
+      isSameDay,
+      matchesFilter,
+      willShow: isSameDay && matchesFilter
+    });
+    
+    return isSameDay && matchesFilter;
+  });
+  
+  // Add logging for initial state
+  useEffect(() => {
+    console.log('Initial state:', {
+      selectedDate: selectedDate.toISOString(),
+      filterType,
+      totalEvents: events.length,
+      events: events.map(e => ({
+        title: e.title,
+        date: e.startDate,
+        type: e.eventType
+      }))
+    });
+  }, []);
+  
+  // Add logging for state changes
+  useEffect(() => {
+    console.log('State updated:', {
+      selectedDate: selectedDate.toISOString(),
+      filterType,
+      totalEvents: events.length,
+      filteredEvents: filteredEvents.length,
+      events: events.map(e => ({
+        title: e.title,
+        date: e.startDate,
+        type: e.eventType
+      }))
+    });
+  }, [events, selectedDate, filterType]);
+  
   // Get dates with events for highlighting in calendar
   const getDatesWithEvents = () => {
-    return events.map(event => new Date(event.date))
-  }
-
+    return events.map(event => {
+      const date = new Date(event.startDate);
+      date.setHours(0, 0, 0, 0);
+      return date;
+    });
+  };
+  
   // Get event type badge
   const getEventTypeBadge = (type: string) => {
     switch (type) {
-      case "warranty":
+      case "expiration":
         return (
           <Badge className="bg-amber-500 text-white">
             <Shield className="mr-1 h-3 w-3" />
-            Warranty
+            Warranty Expiration
           </Badge>
         )
       case "maintenance":
@@ -205,6 +356,13 @@ export default function CalendarPage() {
           <Badge className="bg-blue-500 text-white">
             <Wrench className="mr-1 h-3 w-3" />
             Maintenance
+          </Badge>
+        )
+      case "reminder":
+        return (
+          <Badge className="bg-red-500 text-white">
+            <AlertTriangle className="mr-1 h-3 w-3" />
+            Reminder
           </Badge>
         )
       default:
@@ -236,128 +394,229 @@ export default function CalendarPage() {
     }))
   }
 
-  // Handle product selection
-  const handleProductSelect = (productId: string) => {
-    const product = products.find(p => p.id === productId)
-    if (product) {
+  // Update the product selection handling
+  const handleProductSelect = (productIdString: string) => {
+    console.log('Selected product ID string:', productIdString);
+    
+    // Handle empty selection
+    if (!productIdString) {
       setNewEvent(prev => ({
         ...prev,
-        productId,
-        productName: product.name
-      }))
+        relatedProduct: undefined
+      }));
+      return;
     }
-  }
-
+    
+    setNewEvent(prev => ({
+      ...prev,
+      relatedProduct: productIdString
+    }));
+  };
+  
   // Handle event creation
   const handleCreateEvent = async () => {
-    // Validate form
-    if (!newEvent.title || !newEvent.date || !newEvent.productId) {
-      alert("Please fill in all required fields")
-      return
+    if (!newEvent.title || !newEvent.startDate) {
+      alert("Please fill in all required fields");
+      return;
     }
     
     try {
-      // Prepare event data for API
-      const eventData = {
+      setIsCreating(true);
+      
+      // Create optimistic event
+      const optimisticEvent: CalendarEvent = {
+        ...newEvent,
+        _id: 'temp-' + Date.now(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      // Add optimistic event to state
+      setEvents(prev => [...prev, optimisticEvent]);
+      
+      // Format event data to match API requirements
+      const formattedEvent = {
         title: newEvent.title,
-        description: newEvent.description || "",
-        eventType: newEvent.type,
-        startDate: new Date(`${newEvent.date}T${newEvent.time || '00:00'}`).toISOString(),
-        endDate: new Date(`${newEvent.date}T${newEvent.time || '00:00'}`).toISOString(),
-        allDay: !newEvent.time || newEvent.time === '00:00',
-        relatedProduct: newEvent.productId,
-        location: "", // Required by the API
-        color: "#3498db", // Default color
-        category: newEvent.type, // Use event type as category
-        notifications: {
-          enabled: newEvent.reminder || false,
-          reminderTime: 24 // Default to 24 hours before
+        description: newEvent.description || '',
+        date: new Date(newEvent.startDate).toISOString(), // Ensure proper ISO8601 format
+        type: newEvent.eventType === 'warranty' ? 'expiration' : 
+              newEvent.eventType === 'maintenance' ? 'maintenance' : 
+              newEvent.eventType === 'reminder' ? 'reminder' : 'reminder', // Ensure valid type
+        warranty: newEvent.relatedWarranty || undefined,
+        allDay: newEvent.allDay || false,
+        color: newEvent.color || '#3498db',
+        notifications: newEvent.notifications || {
+          enabled: true,
+          reminderTime: 24
         }
+      };
+      
+      console.log('Sending event data:', formattedEvent); // Debug log
+      
+      const response = await fetch(
+        apiEndpoints.events.list,
+        createApiRequest(apiEndpoints.events.list, 'POST', formattedEvent)
+      );
+      
+      if (!response.ok) {
+        // Remove optimistic event on failure
+        setEvents(prev => prev.filter(e => e._id !== optimisticEvent._id));
+        const errorMessage = await handleApiError(response);
+        throw new Error(errorMessage);
       }
       
-      // Send to API using eventApi
-      const response = await eventApi.createEvent(eventData)
+      const data = await response.json();
+      console.log('Create event response:', data); // Debug log
       
-      if (response.error) {
-        throw new Error(response.error)
-      }
+      // Handle different response formats
+      const createdEvent = data.event || data;
       
-      // Add to events list with the returned data
-      if (response.data?.event) {
-        const event = response.data.event as ApiEvent
-        const newEventWithId: CalendarEvent = {
-          id: event._id,
-          _id: event._id,
-          title: event.title,
-          date: new Date(event.startDate).toISOString().split('T')[0],
-          type: event.eventType,
-          productId: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct || "",
-          productName: newEvent.productName,
-          description: event.description,
-          time: event.allDay ? "00:00" : new Date(event.startDate).toTimeString().slice(0, 5),
-          reminder: event.notifications?.enabled || false,
-          startDate: event.startDate,
-          endDate: event.endDate,
-          eventType: event.eventType,
-          allDay: event.allDay,
-          relatedProduct: typeof event.relatedProduct === 'object' ? event.relatedProduct._id : event.relatedProduct,
-          relatedWarranty: typeof event.relatedWarranty === 'object' ? event.relatedWarranty._id : event.relatedWarranty
-        }
+      if (createdEvent && createdEvent._id) {
+        // Replace optimistic event with real event
+        setEvents(prev => prev.map(e => 
+          e._id === optimisticEvent._id ? createdEvent : e
+        ));
         
-        setEvents(prev => [...prev, newEventWithId])
+        // Reset form and close dialog
+        setNewEvent({
+          title: "",
+          description: "",
+          eventType: "expiration",
+          startDate: new Date().toISOString().split('T')[0],
+          allDay: true,
+          color: "#3498db",
+          notifications: {
+            enabled: true,
+            reminderTime: 24
+          }
+        });
+        setIsDialogOpen(false);
+        
+        // Select the date of the new event
+        setSelectedDate(new Date(createdEvent.startDate));
+        
+        // Clear cache for events
+        ApiCache.removeFromCache(apiEndpoints.events.list);
+        
+        alert('Event created successfully!');
+      } else {
+        throw new Error('Invalid event data returned');
       }
-      
-      // Reset form and close dialog
-      setNewEvent({
-        title: "",
-        date: new Date().toISOString().split('T')[0],
-        type: "warranty",
-        productId: "",
-        productName: "",
-        description: "",
-        time: "09:00",
-        reminder: true,
-        startDate: new Date().toISOString(),
-        endDate: new Date().toISOString(),
-        eventType: "warranty",
-        allDay: false
-      })
-      setIsDialogOpen(false)
-      
-      // Select the date of the new event
-      setSelectedDate(new Date(newEvent.date))
-    } catch (err) {
-      console.error('Error creating event:', err)
-      alert('Failed to create event. Please try again.')
+    } catch (error) {
+      console.error('Error creating event:', error);
+      alert(`Failed to create event: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsCreating(false);
     }
-  }
-
+  };
+  
   // Handle event deletion
   const handleDeleteEvent = async (id: string) => {
     if (confirm("Are you sure you want to delete this event?")) {
       try {
-        // Use eventApi to delete the event
-        const response = await eventApi.deleteEvent(id)
+        setIsDeleting(true);
         
-        if (response.error) {
-          throw new Error(response.error)
+        const response = await fetch(
+          apiEndpoints.events.detail(id),
+          createApiRequest(apiEndpoints.events.detail(id), 'DELETE')
+        );
+        
+        if (!response.ok) {
+          const errorMessage = await handleApiError(response);
+          throw new Error(errorMessage);
         }
         
-        setEvents(prev => prev.filter(event => event.id !== id))
-        setIsViewDialogOpen(false)
-      } catch (err) {
-        console.error('Error deleting event:', err)
-        alert('Failed to delete event. Please try again.')
+        // Remove the deleted event from state
+        setEvents(prev => prev.filter(event => event._id !== id));
+        
+        // Close the view dialog if it's open
+        if (isViewDialogOpen && selectedEvent && selectedEvent._id === id) {
+          setIsViewDialogOpen(false);
+          setSelectedEvent(null);
+        }
+        
+        // Clear cache for events
+        ApiCache.removeFromCache(apiEndpoints.events.list);
+        
+        alert('Event deleted successfully!');
+      } catch (error) {
+        console.error('Error deleting event:', error);
+        alert(`Failed to delete event: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        setIsDeleting(false);
       }
     }
-  }
-
+  };
+  
   // View event details
-  const handleViewEvent = (event: CalendarEvent) => {
-    setSelectedEvent(event)
-    setIsViewDialogOpen(true)
-  }
-
+  const handleViewEvent = async (event: CalendarEvent) => {
+    try {
+      const data = await ApiCache.fetchWithCache<ApiResponse<CalendarEvent>>(
+        apiEndpoints.events.detail(event._id),
+        createApiRequest(apiEndpoints.events.detail(event._id))
+      );
+      
+      // Handle different response formats
+      const eventDetails = data.data || data;
+      
+      if (eventDetails && '_id' in eventDetails) {
+        setSelectedEvent(eventDetails as CalendarEvent);
+        setIsViewDialogOpen(true);
+      } else {
+        // Use the event from the list as a fallback
+        setSelectedEvent(event);
+        setIsViewDialogOpen(true);
+      }
+    } catch (error) {
+      console.error('Error viewing event:', error);
+      // Use the event from the list as a fallback
+      setSelectedEvent(event);
+      setIsViewDialogOpen(true);
+    }
+  };
+  
+  // Update the Calendar component to handle date selection
+  const handleDateSelect = (date: Date | undefined) => {
+    if (date) {
+      console.log('Date selected:', date.toISOString());
+      setSelectedDate(date);
+    }
+  };
+  
+  // Function to convert API event format to our component format
+  const convertApiEventToCalendarEvent = (apiEvent: ApiCalendarEvent): CalendarEvent => {
+    return {
+      _id: apiEvent._id,
+      title: apiEvent.title,
+      description: apiEvent.description,
+      eventType: apiEvent.eventType,
+      startDate: apiEvent.startDate,
+      endDate: apiEvent.endDate,
+      allDay: apiEvent.allDay,
+      location: apiEvent.location,
+      color: apiEvent.color,
+      relatedProduct: typeof apiEvent.relatedProduct === 'object' 
+        ? apiEvent.relatedProduct._id 
+        : apiEvent.relatedProduct,
+      relatedWarranty: typeof apiEvent.relatedWarranty === 'object' 
+        ? apiEvent.relatedWarranty._id 
+        : apiEvent.relatedWarranty,
+      notifications: apiEvent.notifications,
+      date: new Date(apiEvent.startDate).toISOString().split('T')[0],
+      type: apiEvent.eventType,
+      productId: typeof apiEvent.relatedProduct === 'object' 
+        ? apiEvent.relatedProduct._id 
+        : apiEvent.relatedProduct,
+      productName: typeof apiEvent.relatedProduct === 'object' 
+        ? apiEvent.relatedProduct.name 
+        : '',
+      time: apiEvent.allDay ? "00:00" : new Date(apiEvent.startDate).toTimeString().slice(0, 5),
+      reminder: apiEvent.notifications?.enabled || false,
+      createdAt: apiEvent.createdAt,
+      updatedAt: apiEvent.updatedAt
+    };
+  };
+  
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-amber-50">
@@ -396,10 +655,18 @@ export default function CalendarPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Events</SelectItem>
-                  <SelectItem value="warranty">Warranty Events</SelectItem>
-                  <SelectItem value="maintenance">Maintenance Events</SelectItem>
+                  <SelectItem value="expiration">Warranty Expiration</SelectItem>
+                  <SelectItem value="maintenance">Maintenance</SelectItem>
+                  <SelectItem value="reminder">Reminder</SelectItem>
                 </SelectContent>
               </Select>
+              
+              {isLoading && (
+                <div className="flex items-center text-blue-600">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span>Loading events...</span>
+                </div>
+              )}
               
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogTrigger asChild>
@@ -428,69 +695,51 @@ export default function CalendarPage() {
                       />
                     </div>
                     
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="date" className="text-amber-900">Date</Label>
-                        <Input 
-                          id="date" 
-                          type="date" 
-                          value={newEvent.date} 
-                          onChange={(e) => handleNewEventChange('date', e.target.value)}
-                          className="border-2 border-amber-800 bg-amber-50"
-                        />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor="time" className="text-amber-900">Time (optional)</Label>
-                        <Input 
-                          id="time" 
-                          type="time" 
-                          value={newEvent.time} 
-                          onChange={(e) => handleNewEventChange('time', e.target.value)}
-                          className="border-2 border-amber-800 bg-amber-50"
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="startDate" className="text-amber-900">Event Date</Label>
+                      <Input 
+                        id="startDate" 
+                        type="date" 
+                        value={newEvent.startDate} 
+                        onChange={(e) => handleNewEventChange('startDate', e.target.value)}
+                        className="border-2 border-amber-800 bg-amber-50"
+                      />
                     </div>
                     
                     <div className="space-y-2">
                       <Label htmlFor="type" className="text-amber-900">Event Type</Label>
                       <Select 
-                        value={newEvent.type} 
-                        onValueChange={(value) => handleNewEventChange('type', value)}
+                        value={newEvent.eventType} 
+                        onValueChange={(value) => handleNewEventChange('eventType', value)}
                       >
                         <SelectTrigger id="type" className="border-2 border-amber-800 bg-amber-50">
                           <SelectValue placeholder="Select event type" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="warranty">Warranty</SelectItem>
+                          <SelectItem value="expiration">Warranty Expiration</SelectItem>
                           <SelectItem value="maintenance">Maintenance</SelectItem>
                           <SelectItem value="reminder">Reminder</SelectItem>
-                          <SelectItem value="other">Other</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     
                     <div className="space-y-2">
-                      <Label htmlFor="product" className="text-amber-900">Related Product</Label>
+                      <Label htmlFor="warranty" className="text-amber-900">Related Warranty (Optional)</Label>
                       <Select 
-                        value={newEvent.productId} 
-                        onValueChange={(value) => handleProductSelect(value)}
+                        value={newEvent.relatedWarranty || "none"} 
+                        onValueChange={(value) => handleNewEventChange('relatedWarranty', value === "none" ? undefined : value)}
                       >
-                        <SelectTrigger id="product" className="border-2 border-amber-800 bg-amber-50">
-                          <SelectValue placeholder="Select a product" />
+                        <SelectTrigger id="warranty" className="border-2 border-amber-800 bg-amber-50">
+                          <SelectValue placeholder="Select a warranty" />
                         </SelectTrigger>
                         <SelectContent>
-                          {products.map(product => (
-                            <SelectItem key={product.id} value={product.id}>
-                              {product.name}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="none">No warranty</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     
                     <div className="space-y-2">
-                      <Label htmlFor="description" className="text-amber-900">Description (optional)</Label>
+                      <Label htmlFor="description" className="text-amber-900">Description (Optional)</Label>
                       <Textarea 
                         id="description" 
                         value={newEvent.description} 
@@ -498,6 +747,17 @@ export default function CalendarPage() {
                         className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
                         placeholder="Add any additional details about this event..."
                       />
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="allDay"
+                        checked={newEvent.allDay}
+                        onChange={(e) => handleNewEventChange('allDay', e.target.checked)}
+                        className="h-4 w-4 rounded border-amber-800 text-amber-800 focus:ring-amber-800"
+                      />
+                      <Label htmlFor="allDay" className="text-amber-900">All-day event</Label>
                     </div>
                   </div>
                   
@@ -534,7 +794,7 @@ export default function CalendarPage() {
                   <Calendar
                     mode="single"
                     selected={selectedDate}
-                    onSelect={(date) => date && setSelectedDate(date)}
+                    onSelect={handleDateSelect}
                     className="border-2 border-amber-300 rounded-md p-3"
                     modifiers={{
                       hasEvent: getDatesWithEvents()
@@ -572,7 +832,7 @@ export default function CalendarPage() {
                     <div className="space-y-4">
                       {filteredEvents.map(event => (
                         <div 
-                          key={event.id} 
+                          key={event._id} 
                           className="p-4 border-2 border-amber-300 rounded-md bg-amber-50 hover:shadow-md transition-shadow cursor-pointer"
                           onClick={() => handleViewEvent(event)}
                         >
@@ -580,11 +840,10 @@ export default function CalendarPage() {
                             <div>
                               <h3 className="font-bold text-amber-900">{event.title}</h3>
                               <p className="text-amber-700 text-sm mt-1">
-                                {event.productName}
-                                {event.time && event.time !== "00:00" && ` • ${event.time}`}
+                                {event.allDay ? 'All day' : new Date(event.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                               </p>
                             </div>
-                            {getEventTypeBadge(event.type)}
+                            {getEventTypeBadge(event.eventType)}
                           </div>
                           {event.description && (
                             <p className="text-amber-700 mt-2 text-sm line-clamp-2">{event.description}</p>
@@ -619,19 +878,23 @@ export default function CalendarPage() {
               <DialogHeader>
                 <div className="flex justify-between items-center">
                   <DialogTitle className="text-2xl font-bold text-amber-900">{selectedEvent.title}</DialogTitle>
-                  {getEventTypeBadge(selectedEvent.type)}
+                  {getEventTypeBadge(selectedEvent.eventType)}
                 </div>
                 <DialogDescription className="text-amber-700">
-                  {formatDate(selectedEvent.date)}
-                  {selectedEvent.time && selectedEvent.time !== "00:00" && ` at ${selectedEvent.time}`}
+                  {formatDate(selectedEvent.startDate)}
+                  {!selectedEvent.allDay && ` at ${new Date(selectedEvent.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`}
                 </DialogDescription>
               </DialogHeader>
               
               <div className="space-y-4 py-4">
-                <div>
-                  <h4 className="font-semibold text-amber-900">Product</h4>
-                  <p className="text-amber-700">{selectedEvent.productName}</p>
-                </div>
+                {selectedEvent.relatedWarranty && (
+                  <div>
+                    <h4 className="font-semibold text-amber-900">Related Warranty</h4>
+                    <p className="text-amber-700">
+                      {selectedEvent.relatedWarranty}
+                    </p>
+                  </div>
+                )}
                 
                 {selectedEvent.description && (
                   <div>
@@ -644,7 +907,7 @@ export default function CalendarPage() {
               <DialogFooter className="flex justify-between">
                 <Button 
                   variant="outline" 
-                  onClick={() => handleDeleteEvent(selectedEvent.id)}
+                  onClick={() => handleDeleteEvent(selectedEvent._id)}
                   className="border-2 border-red-800 text-red-800 hover:bg-red-50"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />

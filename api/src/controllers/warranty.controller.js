@@ -170,28 +170,47 @@ exports.updateWarranty = async (req, res) => {
     }
     
     const {
+      product,
       purchaseDate,
       expirationDate,
       warrantyProvider,
       warrantyNumber,
       coverageDetails,
-      notes,
-      status
+      notes
     } = req.body;
     
-    if (purchaseDate) warranty.purchaseDate = purchaseDate;
-    if (expirationDate) warranty.expirationDate = expirationDate;
+    // Update fields if provided
+    if (product) warranty.product = product;
+    if (purchaseDate) warranty.purchaseDate = new Date(purchaseDate);
+    if (expirationDate) warranty.expirationDate = new Date(expirationDate);
     if (warrantyProvider) warranty.warrantyProvider = warrantyProvider;
     if (warrantyNumber) warranty.warrantyNumber = warrantyNumber;
     if (coverageDetails) warranty.coverageDetails = coverageDetails;
     if (notes !== undefined) warranty.notes = notes;
-    if (status) warranty.status = status;
+    
+    // Validate the updated warranty
+    const validationError = warranty.validateSync();
+    if (validationError) {
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        errors: Object.values(validationError.errors).map(err => err.message)
+      });
+    }
     
     await warranty.save();
+    
+    // Populate the product information before sending the response
+    await warranty.populate('product', 'name brand category');
     
     res.json(warranty);
   } catch (error) {
     logger.error(`Error updating warranty: ${error.message}`);
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

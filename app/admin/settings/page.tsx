@@ -1,192 +1,344 @@
 "use client"
 
 import React, { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Bell, Cog, Save, Shield } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { useAuth } from "@/lib/auth-context"
+import { adminApi } from "@/lib/api"
+import { toast } from "sonner"
 
-// Mock data for demonstration
-const mockGeneralSettings = {
-  siteName: "Warrity",
-  supportEmail: "support@warrity.com",
-  defaultCurrency: "USD",
-  dateFormat: "MM/DD/YYYY"
+interface Settings {
+  notificationSettings: {
+    emailNotifications: boolean;
+    pushNotifications: boolean;
+    warrantyExpiryAlerts: boolean;
+    systemAlerts: boolean;
+  };
+  emailSettings: {
+    smtpHost: string;
+    smtpPort: string;
+    smtpUser: string;
+    smtpPassword: string;
+    fromEmail: string;
+    fromName: string;
+  };
+  systemSettings: {
+    maintenanceMode: boolean;
+    allowRegistration: boolean;
+    maxLoginAttempts: number;
+    sessionTimeout: number;
+  };
 }
 
 export default function AdminSettingsPage() {
-  const router = useRouter()
   const { user, isAuthenticated, isLoading: authLoading } = useAuth()
-  const [settings, setSettings] = useState(mockGeneralSettings)
-  const [isLoading, setIsLoading] = useState(true)
-  
-  // Check if admin is logged in and fetch settings
-  useEffect(() => {
-    if (!authLoading) {
-      if (!isAuthenticated) {
-        router.replace('/login')
-      } else if (user?.role !== 'admin') {
-        router.replace(user?.role === 'user' ? '/user' : '/login')
-      } else {
-        // In a real app, you would fetch the settings from your backend
-        setIsLoading(false)
-      }
+  const [settings, setSettings] = useState<Settings>({
+    notificationSettings: {
+      emailNotifications: true,
+      pushNotifications: true,
+      warrantyExpiryAlerts: true,
+      systemAlerts: true
+    },
+    emailSettings: {
+      smtpHost: "",
+      smtpPort: "",
+      smtpUser: "",
+      smtpPassword: "",
+      fromEmail: "",
+      fromName: ""
+    },
+    systemSettings: {
+      maintenanceMode: false,
+      allowRegistration: true,
+      maxLoginAttempts: 5,
+      sessionTimeout: 30
     }
-  }, [router, authLoading, isAuthenticated, user])
-  
-  const handleInputChange = (field: string, value: string) => {
+  })
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user?.role === 'admin') {
+      fetchSettings()
+    }
+  }, [authLoading, isAuthenticated, user])
+
+  const fetchSettings = async () => {
+    try {
+      const response = await adminApi.getSettings()
+      if (response.error) {
+        toast.error('Failed to fetch settings: ' + response.error)
+        return
+      }
+      if (response.data) {
+        setSettings(response.data)
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error)
+      toast.error('An error occurred while fetching settings')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      const response = await adminApi.updateSettings(settings)
+      if (response.error) {
+        toast.error('Failed to update settings: ' + response.error)
+        return
+      }
+      toast.success('Settings updated successfully')
+    } catch (error) {
+      console.error('Error updating settings:', error)
+      toast.error('An error occurred while updating settings')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleNotificationChange = (key: keyof Settings['notificationSettings']) => {
     setSettings(prev => ({
       ...prev,
-      [field]: value
+      notificationSettings: {
+        ...prev.notificationSettings,
+        [key]: !prev.notificationSettings[key]
+      }
     }))
   }
-  
-  const handleSaveSettings = () => {
-    console.log("Saving general settings:", settings)
-    // In a real app, you would send the updated settings to your backend
-    alert("Settings saved successfully!")
+
+  const handleEmailChange = (key: keyof Settings['emailSettings'], value: string) => {
+    setSettings(prev => ({
+      ...prev,
+      emailSettings: {
+        ...prev.emailSettings,
+        [key]: value
+      }
+    }))
   }
-  
+
+  const handleSystemChange = (key: keyof Settings['systemSettings'], value: boolean | number) => {
+    setSettings(prev => ({
+      ...prev,
+      systemSettings: {
+        ...prev.systemSettings,
+        [key]: value
+      }
+    }))
+  }
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-amber-800 text-xl">Loading settings...</p>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin h-8 w-8 border-4 border-amber-800 border-t-transparent rounded-full" />
       </div>
     )
   }
-  
+
   return (
-    <div>
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <Link href="/admin" className="flex items-center text-amber-800 hover:text-amber-600 transition-colors">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Dashboard
-          </Link>
-        </div>
-        
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-amber-900">Settings</h1>
-          
-          <div className="flex space-x-4">
-            <Link href="/admin/settings">
-              <Button 
-                variant="outline" 
-                className="border-2 border-amber-800 bg-amber-800 text-amber-100"
-              >
-                <Cog className="mr-2 h-4 w-4" />
-                General
-              </Button>
-            </Link>
-            
-            <Link href="/admin/settings/notifications">
-              <Button 
-                variant="outline" 
-                className="border-2 border-amber-800 text-amber-800 hover:bg-amber-100"
-              >
-                <Bell className="mr-2 h-4 w-4" />
-                Notifications
-              </Button>
-            </Link>
-            
-            <Link href="/admin/settings/security">
-              <Button 
-                variant="outline" 
-                className="border-2 border-amber-800 text-amber-800 hover:bg-amber-100"
-              >
-                <Shield className="mr-2 h-4 w-4" />
-                Security
-              </Button>
-            </Link>
-          </div>
-        </div>
-        
-        <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-          <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-            <CardTitle className="text-2xl font-bold text-amber-900">
-              General Settings
-            </CardTitle>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold text-amber-900">System Settings</h1>
+        <p className="text-amber-800 mt-2">Configure system-wide settings and preferences</p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6">
+        {/* Notification Settings */}
+        <Card className="border-2 border-amber-800 bg-amber-100">
+          <CardHeader>
+            <CardTitle className="text-amber-900">Notification Settings</CardTitle>
             <CardDescription className="text-amber-800">
-              Configure basic system settings for the Warrity platform
+              Configure how and when notifications are sent
             </CardDescription>
           </CardHeader>
-          
-          <CardContent className="p-6">
-            <div className="space-y-6">
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="emailNotifications" className="text-amber-900">
+                Email Notifications
+              </Label>
+              <Switch
+                id="emailNotifications"
+                checked={settings.notificationSettings.emailNotifications}
+                onCheckedChange={() => handleNotificationChange('emailNotifications')}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="pushNotifications" className="text-amber-900">
+                Push Notifications
+              </Label>
+              <Switch
+                id="pushNotifications"
+                checked={settings.notificationSettings.pushNotifications}
+                onCheckedChange={() => handleNotificationChange('pushNotifications')}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="warrantyExpiryAlerts" className="text-amber-900">
+                Warranty Expiry Alerts
+              </Label>
+              <Switch
+                id="warrantyExpiryAlerts"
+                checked={settings.notificationSettings.warrantyExpiryAlerts}
+                onCheckedChange={() => handleNotificationChange('warrantyExpiryAlerts')}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="systemAlerts" className="text-amber-900">
+                System Alerts
+              </Label>
+              <Switch
+                id="systemAlerts"
+                checked={settings.notificationSettings.systemAlerts}
+                onCheckedChange={() => handleNotificationChange('systemAlerts')}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Email Settings */}
+        <Card className="border-2 border-amber-800 bg-amber-100">
+          <CardHeader>
+            <CardTitle className="text-amber-900">Email Settings</CardTitle>
+            <CardDescription className="text-amber-800">
+              Configure email server settings
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="siteName" className="text-amber-900">Site Name</Label>
+                <Label htmlFor="smtpHost" className="text-amber-900">SMTP Host</Label>
                 <Input
-                  id="siteName"
-                  value={settings.siteName}
-                  onChange={(e) => handleInputChange("siteName", e.target.value)}
+                  id="smtpHost"
+                  value={settings.emailSettings.smtpHost}
+                  onChange={(e) => handleEmailChange('smtpHost', e.target.value)}
                   className="border-2 border-amber-800 bg-amber-50"
                 />
               </div>
-              
               <div className="space-y-2">
-                <Label htmlFor="supportEmail" className="text-amber-900">Support Email</Label>
+                <Label htmlFor="smtpPort" className="text-amber-900">SMTP Port</Label>
                 <Input
-                  id="supportEmail"
+                  id="smtpPort"
+                  value={settings.emailSettings.smtpPort}
+                  onChange={(e) => handleEmailChange('smtpPort', e.target.value)}
+                  className="border-2 border-amber-800 bg-amber-50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="smtpUser" className="text-amber-900">SMTP Username</Label>
+                <Input
+                  id="smtpUser"
+                  value={settings.emailSettings.smtpUser}
+                  onChange={(e) => handleEmailChange('smtpUser', e.target.value)}
+                  className="border-2 border-amber-800 bg-amber-50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="smtpPassword" className="text-amber-900">SMTP Password</Label>
+                <Input
+                  id="smtpPassword"
+                  type="password"
+                  value={settings.emailSettings.smtpPassword}
+                  onChange={(e) => handleEmailChange('smtpPassword', e.target.value)}
+                  className="border-2 border-amber-800 bg-amber-50"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="fromEmail" className="text-amber-900">From Email</Label>
+                <Input
+                  id="fromEmail"
                   type="email"
-                  value={settings.supportEmail}
-                  onChange={(e) => handleInputChange("supportEmail", e.target.value)}
+                  value={settings.emailSettings.fromEmail}
+                  onChange={(e) => handleEmailChange('fromEmail', e.target.value)}
                   className="border-2 border-amber-800 bg-amber-50"
                 />
               </div>
-              
               <div className="space-y-2">
-                <Label htmlFor="defaultCurrency" className="text-amber-900">Default Currency</Label>
-                <Select 
-                  value={settings.defaultCurrency} 
-                  onValueChange={(value) => handleInputChange("defaultCurrency", value)}
-                >
-                  <SelectTrigger id="defaultCurrency" className="border-2 border-amber-800 bg-amber-50">
-                    <SelectValue placeholder="Select currency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="USD">USD ($)</SelectItem>
-                    <SelectItem value="EUR">EUR (€)</SelectItem>
-                    <SelectItem value="GBP">GBP (£)</SelectItem>
-                    <SelectItem value="JPY">JPY (¥)</SelectItem>
-                    <SelectItem value="CAD">CAD ($)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="dateFormat" className="text-amber-900">Date Format</Label>
-                <Select 
-                  value={settings.dateFormat} 
-                  onValueChange={(value) => handleInputChange("dateFormat", value)}
-                >
-                  <SelectTrigger id="dateFormat" className="border-2 border-amber-800 bg-amber-50">
-                    <SelectValue placeholder="Select date format" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                    <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                    <SelectItem value="YYYY-MM-DD">YYYY-MM-DD</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="fromName" className="text-amber-900">From Name</Label>
+                <Input
+                  id="fromName"
+                  value={settings.emailSettings.fromName}
+                  onChange={(e) => handleEmailChange('fromName', e.target.value)}
+                  className="border-2 border-amber-800 bg-amber-50"
+                />
               </div>
             </div>
           </CardContent>
-          
-          <CardFooter className="bg-amber-200 border-t-4 border-amber-800 px-6 py-4 flex justify-end">
-            <Button 
-              onClick={handleSaveSettings}
-              className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
-            >
-              <Save className="mr-2 h-4 w-4" />
-              Save Settings
-            </Button>
-          </CardFooter>
         </Card>
+
+        {/* System Settings */}
+        <Card className="border-2 border-amber-800 bg-amber-100">
+          <CardHeader>
+            <CardTitle className="text-amber-900">System Settings</CardTitle>
+            <CardDescription className="text-amber-800">
+              Configure system-wide behavior and security settings
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="maintenanceMode" className="text-amber-900">
+                Maintenance Mode
+              </Label>
+              <Switch
+                id="maintenanceMode"
+                checked={settings.systemSettings.maintenanceMode}
+                onCheckedChange={(checked) => handleSystemChange('maintenanceMode', checked)}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="allowRegistration" className="text-amber-900">
+                Allow New Registrations
+              </Label>
+              <Switch
+                id="allowRegistration"
+                checked={settings.systemSettings.allowRegistration}
+                onCheckedChange={(checked) => handleSystemChange('allowRegistration', checked)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="maxLoginAttempts" className="text-amber-900">
+                Maximum Login Attempts
+              </Label>
+              <Input
+                id="maxLoginAttempts"
+                type="number"
+                min="1"
+                max="10"
+                value={settings.systemSettings.maxLoginAttempts}
+                onChange={(e) => handleSystemChange('maxLoginAttempts', parseInt(e.target.value))}
+                className="border-2 border-amber-800 bg-amber-50"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="sessionTimeout" className="text-amber-900">
+                Session Timeout (minutes)
+              </Label>
+              <Input
+                id="sessionTimeout"
+                type="number"
+                min="5"
+                max="120"
+                value={settings.systemSettings.sessionTimeout}
+                onChange={(e) => handleSystemChange('sessionTimeout', parseInt(e.target.value))}
+                className="border-2 border-amber-800 bg-amber-50"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
+          >
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -11,14 +11,12 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
-  User, 
   Bell, 
   Lock, 
   Save, 
   Mail, 
-  Phone, 
-  Calendar,
-  Clock,
+  Globe,
+  Palette,
   AlertTriangle,
   AlertCircle
 } from "lucide-react"
@@ -46,37 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-// Mock user data type
-interface MockUser {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  preferences?: {
-    emailNotifications: boolean;
-    reminderDays: number;
-  };
-}
-
-// Mock user data for demonstration
-const mockUser: MockUser = {
-  id: 1,
-  name: "John Doe",
-  email: "john@example.com",
-  phone: "+1234567890",
-  preferences: {
-    emailNotifications: true,
-    reminderDays: 30
-  }
-}
-
 // Form validation schemas
-const profileFormSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  email: z.string().email("Invalid email address"),
-  phone: z.string().optional()
-})
-
 const passwordFormSchema = z.object({
   currentPassword: z.string()
     .min(8, "Current password must be at least 8 characters"),
@@ -93,12 +61,15 @@ const passwordFormSchema = z.object({
   path: ["confirmPassword"],
 })
 
-const notificationsFormSchema = z.object({
+const preferencesFormSchema = z.object({
   emailNotifications: z.boolean().default(true),
   reminderDays: z.number()
     .min(1, "Reminder days must be at least 1")
     .max(365, "Reminder days must not exceed 365")
     .default(30),
+  theme: z.enum(["light", "dark", "system"]).default("system"),
+  language: z.enum(["en", "es", "fr", "de", "ja"]).default("en"),
+  notifications: z.boolean().default(true),
 })
 
 // Add password strength indicator component
@@ -155,11 +126,9 @@ const PasswordStrengthIndicator = ({ password }: { password: string }) => {
 export default function UserSettingsPage() {
   const router = useRouter()
   const { user: authUser, isAuthenticated, isLoading: authLoading, updateProfile } = useAuth()
-  const [user, setUser] = useState<MockUser | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPasswordSaving, setIsPasswordSaving] = useState(false)
   const [isPreferencesSaving, setIsPreferencesSaving] = useState(false)
-  const [isProfileSaving, setIsProfileSaving] = useState(false)
 
   // Initialize forms
   const passwordForm = useForm<z.infer<typeof passwordFormSchema>>({
@@ -171,20 +140,14 @@ export default function UserSettingsPage() {
     }
   })
 
-  const notificationsForm = useForm<z.infer<typeof notificationsFormSchema>>({
-    resolver: zodResolver(notificationsFormSchema),
+  const preferencesForm = useForm<z.infer<typeof preferencesFormSchema>>({
+    resolver: zodResolver(preferencesFormSchema),
     defaultValues: {
       emailNotifications: true,
-      reminderDays: 30
-    }
-  })
-
-  const profileForm = useForm<z.infer<typeof profileFormSchema>>({
-    resolver: zodResolver(profileFormSchema),
-    defaultValues: {
-      name: "",
-      email: "",
-      phone: ""
+      reminderDays: 30,
+      theme: "system",
+      language: "en",
+      notifications: true
     }
   })
 
@@ -195,43 +158,17 @@ export default function UserSettingsPage() {
         router.replace('/login')
       } else if (authUser && authUser.role !== 'user') {
         router.replace(authUser.role === 'admin' ? '/admin' : '/login')
-      } else {
-        setUser(mockUser)
-        profileForm.reset({
-          name: mockUser.name,
-          email: mockUser.email,
-          phone: mockUser.phone
-        })
-        notificationsForm.reset({
-          emailNotifications: mockUser.preferences?.emailNotifications || true,
-          reminderDays: mockUser.preferences?.reminderDays || 30
+      } else if (authUser) {
+        preferencesForm.reset({
+          emailNotifications: authUser.preferences?.emailNotifications ?? true,
+          reminderDays: authUser.preferences?.reminderDays ?? 30,
+          theme: authUser.preferences?.theme ?? "system",
+          language: authUser.preferences?.language ?? "en",
+          notifications: authUser.preferences?.notifications ?? true
         })
       }
     }
-  }, [router, authLoading, isAuthenticated, authUser, notificationsForm, profileForm])
-
-  const onProfileSubmit = async (data: z.infer<typeof profileFormSchema>) => {
-    setIsProfileSaving(true)
-    setError(null)
-
-    try {
-      const success = await updateProfile({
-        name: data.name,
-        phone: data.phone
-      })
-
-      if (success) {
-        toast.success("Profile updated successfully!")
-      } else {
-        setError("Failed to update profile. Please try again.")
-      }
-    } catch (err) {
-      console.error("Profile update error:", err)
-      setError("An unexpected error occurred. Please try again.")
-    } finally {
-      setIsProfileSaving(false)
-    }
-  }
+  }, [router, authLoading, isAuthenticated, authUser, preferencesForm])
 
   // Form submission handlers
   const onPasswordSubmit = async (data: z.infer<typeof passwordFormSchema>) => {
@@ -249,17 +186,17 @@ export default function UserSettingsPage() {
         return
       }
 
+      toast.success("Password updated successfully")
       passwordForm.reset()
-      toast.success("Password updated successfully!")
     } catch (err) {
       console.error("Password update error:", err)
-      setError("An unexpected error occurred. Please try again.")
+      setError("An unexpected error occurred")
     } finally {
       setIsPasswordSaving(false)
     }
   }
 
-  const onNotificationsSubmit = async (data: z.infer<typeof notificationsFormSchema>) => {
+  const onPreferencesSubmit = async (data: z.infer<typeof preferencesFormSchema>) => {
     setIsPreferencesSaving(true)
     setError(null)
 
@@ -267,156 +204,215 @@ export default function UserSettingsPage() {
       const success = await updateProfile({
         preferences: {
           emailNotifications: data.emailNotifications,
-          reminderDays: data.reminderDays
+          reminderDays: data.reminderDays,
+          theme: data.theme,
+          language: data.language,
+          notifications: data.notifications
         }
       })
 
       if (success) {
-        toast.success("Notification preferences updated successfully!")
+        toast.success("Preferences updated successfully!")
       } else {
-        setError("Failed to update notification preferences. Please try again.")
+        setError("Failed to update preferences. Please try again.")
       }
     } catch (err) {
-      console.error("Notification preferences update error:", err)
+      console.error("Preferences update error:", err)
       setError("An unexpected error occurred. Please try again.")
     } finally {
       setIsPreferencesSaving(false)
     }
   }
-  
-  if (!user) {
+
+  if (!authUser) {
     return (
       <div className="flex min-h-screen bg-amber-50">
-        <WarrantySidebar />
-        <div className="flex-1 p-6 ml-64 flex items-center justify-center">
-          <p className="text-amber-800 text-xl">Loading user settings...</p>
+        <div className="flex-1 p-8">
+          <div className="max-w-2xl mx-auto">
+            <div className="animate-pulse space-y-4">
+              <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+              <div className="h-32 bg-gray-200 rounded"></div>
+              <div className="h-32 bg-gray-200 rounded"></div>
+            </div>
+          </div>
         </div>
       </div>
     )
   }
-  
+
   return (
     <div className="flex min-h-screen bg-amber-50">
       <WarrantySidebar />
-      
       <div className="flex-1 p-6 ml-64">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold text-amber-900 mb-6">Account Settings</h1>
-          
+
           {error && (
             <div className="mb-4 p-3 bg-red-100 border-2 border-red-400 rounded-md flex items-center text-red-800">
               <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
               <p>{error}</p>
             </div>
           )}
-          
-          <Tabs defaultValue="profile" className="w-full">
-            <TabsList className="grid grid-cols-3 mb-6 bg-amber-200 border-2 border-amber-800">
+
+          <Tabs defaultValue="preferences" className="w-full">
+            <TabsList className="grid grid-cols-2 mb-6 bg-amber-200 border-2 border-amber-800">
               <TabsTrigger 
-                value="profile" 
+                value="preferences" 
                 className="data-[state=active]:bg-amber-800 data-[state=active]:text-amber-100"
               >
-                <User className="mr-2 h-4 w-4" />
-                Profile
+                <Globe className="mr-2 h-4 w-4" />
+                Preferences
               </TabsTrigger>
               <TabsTrigger 
-                value="password" 
+                value="security" 
                 className="data-[state=active]:bg-amber-800 data-[state=active]:text-amber-100"
               >
                 <Lock className="mr-2 h-4 w-4" />
-                Password
-              </TabsTrigger>
-              <TabsTrigger 
-                value="notifications" 
-                className="data-[state=active]:bg-amber-800 data-[state=active]:text-amber-100"
-              >
-                <Bell className="mr-2 h-4 w-4" />
-                Notifications
+                Security
               </TabsTrigger>
             </TabsList>
-            
-            <TabsContent value="profile">
+
+            <TabsContent value="preferences">
               <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
                 <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                   <CardTitle className="text-2xl font-bold text-amber-900">
-                    Profile Information
+                    <Globe className="inline-block mr-2 h-6 w-6" />
+                    Preferences
                   </CardTitle>
                   <CardDescription className="text-amber-800">
-                    Update your personal information
+                    Customize your application experience
                   </CardDescription>
                 </CardHeader>
                 
                 <CardContent className="p-6">
-                  <Form {...profileForm}>
-                    <form onSubmit={profileForm.handleSubmit(onProfileSubmit)} className="space-y-6">
-                      <FormField
-                        control={profileForm.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-amber-900">Full Name</FormLabel>
-                            <FormControl>
-                              <div className="flex">
-                                <User className="h-5 w-5 text-amber-800 mr-3 mt-2" />
+                  <Form {...preferencesForm}>
+                    <form onSubmit={preferencesForm.handleSubmit(onPreferencesSubmit)} className="space-y-6">
+                      <div className="space-y-4">
+                        <FormField
+                          control={preferencesForm.control}
+                          name="theme"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-amber-900">Theme</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
+                                    <SelectValue placeholder="Select theme" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="light">Light</SelectItem>
+                                  <SelectItem value="dark">Dark</SelectItem>
+                                  <SelectItem value="system">System</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription className="text-amber-700">
+                                Choose your preferred theme
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={preferencesForm.control}
+                          name="language"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-amber-900">Language</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
+                                    <SelectValue placeholder="Select language" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="en">English</SelectItem>
+                                  <SelectItem value="es">Spanish</SelectItem>
+                                  <SelectItem value="fr">French</SelectItem>
+                                  <SelectItem value="de">German</SelectItem>
+                                  <SelectItem value="ja">Japanese</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormDescription className="text-amber-700">
+                                Choose your preferred language
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={preferencesForm.control}
+                          name="emailNotifications"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between p-4 border-2 border-amber-800 rounded-lg bg-amber-50">
+                              <div>
+                                <FormLabel className="text-lg font-semibold text-amber-900">Email Notifications</FormLabel>
+                                <p className="text-sm text-amber-700">Receive email notifications about your warranties</p>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  className="data-[state=checked]:bg-amber-800"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={preferencesForm.control}
+                          name="notifications"
+                          render={({ field }) => (
+                            <FormItem className="flex items-center justify-between p-4 border-2 border-amber-800 rounded-lg bg-amber-50">
+                              <div>
+                                <FormLabel className="text-lg font-semibold text-amber-900">Push Notifications</FormLabel>
+                                <p className="text-sm text-amber-700">Receive push notifications about your warranties</p>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  className="data-[state=checked]:bg-amber-800"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={preferencesForm.control}
+                          name="reminderDays"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-amber-900">Reminder Days</FormLabel>
+                              <FormControl>
                                 <Input
+                                  type="number"
+                                  min={1}
+                                  max={365}
                                   {...field}
+                                  onChange={(e) => field.onChange(Number(e.target.value))}
                                   className="border-2 border-amber-800 bg-amber-50"
                                 />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={profileForm.control}
-                        name="email"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-amber-900">Email Address</FormLabel>
-                            <FormControl>
-                              <div className="flex">
-                                <Mail className="h-5 w-5 text-amber-800 mr-3 mt-2" />
-                                <Input
-                                  {...field}
-                                  type="email"
-                                  disabled
-                                  className="border-2 border-amber-800 bg-amber-50 opacity-70"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={profileForm.control}
-                        name="phone"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-amber-900">Phone Number</FormLabel>
-                            <FormControl>
-                              <div className="flex">
-                                <Phone className="h-5 w-5 text-amber-800 mr-3 mt-2" />
-                                <Input
-                                  {...field}
-                                  className="border-2 border-amber-800 bg-amber-50"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
+                              </FormControl>
+                              <FormDescription className="text-amber-700">
+                                Number of days before warranty expiration to receive notifications
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
                       <Button 
-                        type="submit"
+                        type="submit" 
+                        disabled={isPreferencesSaving}
                         className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
-                        disabled={isProfileSaving}
                       >
-                        {isProfileSaving ? (
+                        {isPreferencesSaving ? (
                           <div className="flex items-center">
                             <div className="animate-spin mr-2 h-4 w-4 border-2 border-amber-100 border-t-transparent rounded-full" />
                             Saving...
@@ -424,7 +420,7 @@ export default function UserSettingsPage() {
                         ) : (
                           <>
                             <Save className="mr-2 h-4 w-4" />
-                            Save Changes
+                            Save Preferences
                           </>
                         )}
                       </Button>
@@ -433,21 +429,22 @@ export default function UserSettingsPage() {
                 </CardContent>
               </Card>
             </TabsContent>
-            
-            <TabsContent value="password">
+
+            <TabsContent value="security">
               <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
                 <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                   <CardTitle className="text-2xl font-bold text-amber-900">
-                    Change Password
+                    <Lock className="inline-block mr-2 h-6 w-6" />
+                    Security
                   </CardTitle>
                   <CardDescription className="text-amber-800">
-                    Update your password
+                    Manage your password and security settings
                   </CardDescription>
                 </CardHeader>
                 
                 <CardContent className="p-6">
                   <Form {...passwordForm}>
-                    <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-4">
+                    <form onSubmit={passwordForm.handleSubmit(onPasswordSubmit)} className="space-y-6">
                       <div className="space-y-4">
                         <h3 className="text-lg font-semibold text-amber-900">Change Password</h3>
                         
@@ -506,11 +503,11 @@ export default function UserSettingsPage() {
                           )}
                         />
                       </div>
-                      
+
                       <Button 
-                        type="submit"
-                        className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
+                        type="submit" 
                         disabled={isPasswordSaving}
+                        className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
                       >
                         {isPasswordSaving ? (
                           <div className="flex items-center">
@@ -519,91 +516,8 @@ export default function UserSettingsPage() {
                           </div>
                         ) : (
                           <>
-                            <Save className="mr-2 h-4 w-4" />
+                            <Lock className="mr-2 h-4 w-4" />
                             Update Password
-                          </>
-                        )}
-                      </Button>
-                    </form>
-                  </Form>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            <TabsContent value="notifications">
-              <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-                <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-                  <CardTitle className="text-2xl font-bold text-amber-900">
-                    Notification Settings
-                  </CardTitle>
-                  <CardDescription className="text-amber-800">
-                    Manage how you receive notifications
-                  </CardDescription>
-                </CardHeader>
-                
-                <CardContent className="p-6">
-                  <Form {...notificationsForm}>
-                    <form onSubmit={notificationsForm.handleSubmit(onNotificationsSubmit)} className="space-y-6">
-                      <FormField
-                        control={notificationsForm.control}
-                        name="emailNotifications"
-                        render={({ field }) => (
-                          <FormItem className="flex items-center justify-between">
-                            <div>
-                              <FormLabel className="text-lg font-semibold text-amber-900">Email Notifications</FormLabel>
-                              <p className="text-sm text-amber-700">Receive email notifications for warranty expirations and updates</p>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                                className="data-[state=checked]:bg-amber-800"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <FormField
-                        control={notificationsForm.control}
-                        name="reminderDays"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-amber-900">Reminder Days Before Expiration</FormLabel>
-                            <Select
-                              value={field.value.toString()}
-                              onValueChange={(value: string) => field.onChange(parseInt(value))}
-                            >
-                              <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                                <SelectValue placeholder="Select days" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="7">7 days</SelectItem>
-                                <SelectItem value="14">14 days</SelectItem>
-                                <SelectItem value="30">30 days</SelectItem>
-                                <SelectItem value="60">60 days</SelectItem>
-                                <SelectItem value="90">90 days</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      
-                      <Button 
-                        type="submit"
-                        className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
-                        disabled={isPreferencesSaving}
-                      >
-                        {isPreferencesSaving ? (
-                          <div className="flex items-center">
-                            <div className="animate-spin mr-2 h-4 w-4 border-2 border-amber-100 border-t-transparent rounded-full" />
-                            Saving...
-                          </div>
-                        ) : (
-                          <>
-                            <Save className="mr-2 h-4 w-4" />
-                            Save Preferences
                           </>
                         )}
                       </Button>

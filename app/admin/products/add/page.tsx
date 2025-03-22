@@ -94,8 +94,9 @@ export default function AddProductPage() {
       }
       
       toast.success('Product created successfully!')
-      // Use replace instead of push to prevent back navigation
-      router.replace('/admin/products')
+      
+      // Force a complete page reload to ensure fresh data
+      window.location.href = '/admin/products'
     } catch (error) {
       console.error('Error creating product:', error)
       toast.error('An error occurred while creating the product')

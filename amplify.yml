@@ -1,0 +1,63 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm install -g pnpm
+        - pnpm install
+        - cp .env.amplify .env.production
+        - echo "NEXT_PUBLIC_API_URL=https://api.warrity.com/api" >> .env.production
+        - echo "NEXT_PUBLIC_APP_URL=https://stable-21-03-25.dkewumso9wy5d.amplifyapp.com" >> .env.production
+        - echo "NEXT_PUBLIC_UPLOAD_URL=https://uploads.warrity.com" >> .env.production
+        - echo "NEXTAUTH_URL=https://stable-21-03-25.dkewumso9wy5d.amplifyapp.com" >> .env.production
+    build:
+      commands:
+        - pnpm build
+  artifacts:
+    baseDirectory: .next
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'Access-Control-Allow-Origin'
+          value: '*'
+        - key: 'Access-Control-Allow-Methods'
+          value: 'GET,HEAD,PUT,PATCH,POST,DELETE'
+        - key: 'Access-Control-Allow-Headers'
+          value: 'Content-Type, Authorization'
+api:
+  phases:
+    preBuild:
+      commands:
+        - cd api
+        - npm install
+        - cp .env.production .env
+    build:
+      commands:
+        - npm ci --production
+        - npm run postbuild
+    start:
+      commands:
+        - npm run start:pm2
+  artifacts:
+    baseDirectory: api
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - api/node_modules/**/*
+  customHeaders:
+    - pattern: '**/*'
+      headers:
+        - key: 'Access-Control-Allow-Origin'
+          value: 'https://stable-21-03-25.dkewumso9wy5d.amplifyapp.com'
+        - key: 'Access-Control-Allow-Methods'
+          value: 'GET,HEAD,PUT,PATCH,POST,DELETE'
+        - key: 'Access-Control-Allow-Headers'
+          value: 'Content-Type, Authorization'
+        - key: 'Access-Control-Allow-Credentials'
+          value: 'true' 

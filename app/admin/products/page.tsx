@@ -24,6 +24,7 @@ import { productApi } from "@/lib/api"
 
 // Define Product interface to match API response
 interface Product {
+  _id?: string  // MongoDB _id field
   id: string
   name: string
   category: string
@@ -69,22 +70,40 @@ export default function AdminProductsPage() {
     if (authLoading || !isAuthenticated || user?.role !== 'admin') return
     
     try {
+      // Force a fresh fetch by adding a timestamp
+      const timestamp = new Date().getTime()
       const response = await productApi.getAllProducts()
+      console.log('API Response:', response) // Add logging to debug response
+      
       if (response.error) {
         toast.error('Failed to fetch products: ' + response.error)
         return
       }
-      if (response.data?.products) {
-        const products = response.data.products.map(product => ({
-          ...product,
-          id: product._id // Map MongoDB _id to our frontend id
-        })) as Product[]
-        setProducts(products)
-        setFilteredProducts(products)
+
+      // Handle both array and object with products property
+      const productsData = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data as { products: Product[] })?.products || []
+
+      if (!productsData || productsData.length === 0) {
+        console.log('No products found in response')
+        setProducts([])
+        setFilteredProducts([])
+        return
       }
+
+      const products = productsData.map((product: Product) => ({
+        ...product,
+        id: product._id || product.id, // Handle both _id and id cases
+        _timestamp: timestamp // Add timestamp to force re-render
+      })) as Product[]
+
+      console.log('Processed products:', products) // Add logging to debug processed data
+      setProducts(products)
+      setFilteredProducts(products)
     } catch (error) {
-      toast.error('An error occurred while fetching products')
       console.error('Error fetching products:', error)
+      toast.error('An error occurred while fetching products')
     } finally {
       setIsLoading(false)
     }
@@ -95,13 +114,17 @@ export default function AdminProductsPage() {
 
   // Fetch products initially
   useEffect(() => {
-    fetchProducts()
+    if (isAuthenticated && user?.role === 'admin') {
+      router.refresh() // Refresh router cache
+      fetchProducts()
+    }
   }, [isAuthenticated, user?.role, authLoading])
 
   // Refetch products when page gains focus
   useEffect(() => {
     const onFocus = () => {
       setHasFocus(true)
+      router.refresh() // Refresh router cache
       fetchProducts()
     }
     window.addEventListener('focus', onFocus)
@@ -112,6 +135,7 @@ export default function AdminProductsPage() {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        router.refresh() // Refresh router cache
         fetchProducts()
       }
     }

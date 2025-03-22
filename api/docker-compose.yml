@@ -8,13 +8,13 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "5001:5001"
+      - "5000:5000"
     volumes:
       - ./logs:/usr/src/app/logs
       - ./uploads:/usr/src/app/uploads
     environment:
       - NODE_ENV=production
-      - PORT=5001
+      - PORT=5000
       - MONGODB_URI=mongodb://mongodb:27017/warrity
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRATION=7d

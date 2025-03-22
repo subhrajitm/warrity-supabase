@@ -18,58 +18,67 @@ import {
 } from "lucide-react"
 import WarrantySidebar from "./warranties/components/sidebar"
 import { useAuth } from "@/lib/auth-context"
-
-// Define warranty type
-interface Warranty {
-  id: number;
-  _id: string;
-  product: string;
-  category: string;
-  provider: string;
-  purchaseDate: string;
-  endDate: string;
-  status: string;
-}
-
-// Mock data for demonstration
-const mockWarranties: Warranty[] = [
-  {
-    id: 1,
-    _id: "1",
-    product: "Samsung TV",
-    category: "electronics",
-    provider: "Samsung Electronics",
-    purchaseDate: "2023-01-15",
-    endDate: "2024-05-15",
-    status: "active"
-  },
-  {
-    id: 2,
-    _id: "2",
-    product: "Dyson Vacuum",
-    category: "appliances",
-    provider: "Dyson Inc.",
-    purchaseDate: "2022-06-10",
-    endDate: "2023-12-10",
-    status: "expiring"
-  },
-  {
-    id: 3,
-    _id: "3",
-    product: "MacBook Pro",
-    category: "electronics",
-    provider: "Apple Inc.",
-    purchaseDate: "2022-05-20",
-    endDate: "2023-08-25",
-    status: "expiring"
-  }
-]
+import { warrantyApi } from "@/lib/api"
+import type { Warranty, DashboardStats, Product } from "@/types/warranty"
 
 export default function UserDashboard() {
   const router = useRouter()
   const { user, isAuthenticated, isLoading } = useAuth()
   const [warranties, setWarranties] = useState<Warranty[]>([])
   const [expiringWarranties, setExpiringWarranties] = useState<Warranty[]>([])
+  const [stats, setStats] = useState<DashboardStats>({
+    total: 0,
+    active: 0,
+    expiring: 0,
+    expired: 0,
+    warrantyByCategory: [],
+    recentWarranties: []
+  })
+  const [isLoadingData, setIsLoadingData] = useState(true)
+  
+  // Fetch warranties and stats
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) return;
+      
+      try {
+        setIsLoadingData(true);
+        
+        const [warrantiesResponse, expiringResponse, statsResponse] = await Promise.all([
+          warrantyApi.getAllWarranties(),
+          warrantyApi.getExpiringWarranties(),
+          warrantyApi.getWarrantyStats()
+        ]);
+
+        if (warrantiesResponse.data) {
+          setWarranties(Array.isArray(warrantiesResponse.data) ? warrantiesResponse.data : []);
+        }
+
+        if (expiringResponse.data) {
+          setExpiringWarranties(Array.isArray(expiringResponse.data) ? expiringResponse.data : []);
+        }
+
+        // Update stats with the response data
+        if (statsResponse?.data) {
+          const { total, active, expiring, expired } = statsResponse.data;
+          setStats({
+            total: total || 0,
+            active: active || 0,
+            expiring: expiring || 0,
+            expired: expired || 0,
+            warrantyByCategory: [],
+            recentWarranties: []
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setIsLoadingData(false);
+      }
+    };
+    
+    fetchData();
+  }, [user]);
   
   // Check if user is logged in
   useEffect(() => {
@@ -80,14 +89,10 @@ export default function UserDashboard() {
         router.replace(user.role === 'admin' ? '/admin' : '/login')
       }
     }
-    
-    // In a real app, you would fetch the warranties from your backend
-    setWarranties(mockWarranties)
-    setExpiringWarranties(mockWarranties.filter(w => w.status === 'expiring'))
   }, [isAuthenticated, isLoading, router, user])
   
-  // Show loading state while checking authentication
-  if (isLoading) {
+  // Show loading state while checking authentication or fetching data
+  if (isLoading || isLoadingData) {
     return (
       <div className="min-h-screen bg-amber-50 flex items-center justify-center p-6">
         <div className="text-amber-800 text-xl flex items-center">
@@ -126,6 +131,14 @@ export default function UserDashboard() {
     }
   }
   
+  // Helper function to get product name
+  const getProductName = (product: string | Product) => {
+    if (typeof product === 'string') {
+      return 'Unknown Product'; // Fallback if we only have the ID
+    }
+    return product.name;
+  };
+  
   return (
     <div className="flex min-h-screen bg-amber-50">
       <WarrantySidebar />
@@ -144,7 +157,7 @@ export default function UserDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 flex items-center justify-between">
-                <div className="text-4xl font-bold text-amber-900">{warranties.length}</div>
+                <div className="text-4xl font-bold text-amber-900">{stats.total}</div>
                 <Package className="h-12 w-12 text-amber-800" />
               </CardContent>
             </Card>
@@ -156,7 +169,7 @@ export default function UserDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 flex items-center justify-between">
-                <div className="text-4xl font-bold text-amber-900">{expiringWarranties.length}</div>
+                <div className="text-4xl font-bold text-amber-900">{stats.expiring}</div>
                 <Clock className="h-12 w-12 text-amber-800" />
               </CardContent>
             </Card>
@@ -196,20 +209,16 @@ export default function UserDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {expiringWarranties.map(warranty => {
-                    // Use _id if available, fall back to id
-                    const warrantyId = warranty._id || warranty.id;
-                    
-                    return (
-                    <Link key={warrantyId} href={`/user/warranties/${warrantyId}`}>
+                  {expiringWarranties.map(warranty => (
+                    <Link key={warranty._id} href={`/user/warranties/${warranty._id}`}>
                       <div className="flex justify-between items-center p-4 border-2 border-amber-800 rounded-lg bg-amber-50 hover:bg-amber-200 transition-colors">
                         <div className="flex items-center">
                           <div className="mr-4">
                             <Bell className="h-8 w-8 text-amber-800" />
                           </div>
                           <div>
-                            <h3 className="font-medium text-amber-900">{warranty.product}</h3>
-                            <p className="text-sm text-amber-700">{warranty.provider}</p>
+                            <h3 className="font-medium text-amber-900">{getProductName(warranty.product)}</h3>
+                            <p className="text-sm text-amber-700">{warranty.warrantyProvider}</p>
                             <div className="flex items-center mt-1">
                               {getStatusBadge(warranty.status)}
                             </div>
@@ -218,14 +227,13 @@ export default function UserDashboard() {
                         <div className="text-right">
                           <div className="flex items-center text-sm text-amber-800">
                             <Calendar className="h-4 w-4 mr-1" />
-                            Expires: {warranty.endDate}
+                            Expires: {new Date(warranty.expirationDate).toLocaleDateString()}
                           </div>
                           <ChevronRight className="h-5 w-5 text-amber-800 mt-2 ml-auto" />
                         </div>
                       </div>
                     </Link>
-                    );
-                  })}
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -249,43 +257,37 @@ export default function UserDashboard() {
                   <Link href="/user/warranties/add" className="mt-2 inline-block">
                     <Button className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900">
                       <PlusCircle className="mr-2 h-4 w-4" />
-                      Add Warranty
+                      Add Your First Warranty
                     </Button>
                   </Link>
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {warranties.slice(0, 3).map(warranty => {
-                    // Use _id if available, fall back to id
-                    const warrantyId = warranty._id || warranty.id;
-                    
-                    return (
-                    <Link key={warrantyId} href={`/user/warranties/${warrantyId}`}>
+                  {warranties.slice(0, 5).map(warranty => (
+                    <Link key={warranty._id} href={`/user/warranties/${warranty._id}`}>
                       <div className="flex justify-between items-center p-4 border-2 border-amber-800 rounded-lg bg-amber-50 hover:bg-amber-200 transition-colors">
                         <div className="flex items-center">
                           <div className="mr-4">
                             <Package className="h-8 w-8 text-amber-800" />
                           </div>
                           <div>
-                            <h3 className="font-medium text-amber-900">{warranty.product}</h3>
-                            <p className="text-sm text-amber-700">{warranty.provider}</p>
-                            <div className="flex items-center mt-1 space-x-2">
+                            <h3 className="font-medium text-amber-900">{getProductName(warranty.product)}</h3>
+                            <p className="text-sm text-amber-700">{warranty.warrantyProvider}</p>
+                            <div className="flex items-center mt-1">
                               {getStatusBadge(warranty.status)}
-                              <Badge className="bg-amber-800">{warranty.category}</Badge>
                             </div>
                           </div>
                         </div>
                         <div className="text-right">
                           <div className="flex items-center text-sm text-amber-800">
                             <Calendar className="h-4 w-4 mr-1" />
-                            Expires: {warranty.endDate}
+                            Expires: {new Date(warranty.expirationDate).toLocaleDateString()}
                           </div>
                           <ChevronRight className="h-5 w-5 text-amber-800 mt-2 ml-auto" />
                         </div>
                       </div>
                     </Link>
-                    );
-                  })}
+                  ))}
                 </div>
               )}
             </CardContent>

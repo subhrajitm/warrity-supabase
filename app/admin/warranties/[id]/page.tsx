@@ -172,9 +172,15 @@ function WarrantyDetails({ warrantyId }: { warrantyId: string }) {
             </h3>
             <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
               <div>
-                <span className="text-amber-700">User ID:</span>{" "}
+                <span className="text-amber-700">Name:</span>{" "}
                 <span className="text-amber-900 font-medium">
-                  {warranty.user}
+                  {warranty.user?.name || 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-amber-700">Email:</span>{" "}
+                <span className="text-amber-900 font-medium">
+                  {warranty.user?.email || 'N/A'}
                 </span>
               </div>
             </div>

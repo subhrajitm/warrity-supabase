@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Save, AlertTriangle } from "lucide-react"
-import { Warranty } from "@/types/warranty"
+import { Warranty, WarrantyApiResponse, ValidationError } from "@/types/warranty"
 import { warrantyApi } from "@/lib/api"
 import { useAuth } from "@/lib/auth-context"
 
@@ -62,6 +62,11 @@ const safelyGetNestedValue = (obj: any, path: string, defaultValue: string = '')
   }
   
   return current !== undefined && current !== null ? String(current) : defaultValue;
+}
+
+interface ApiError {
+  message: string;
+  errors?: string[];
 }
 
 interface Props {
@@ -171,19 +176,89 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsSubmitting(true)
+    setError(null) // Clear any previous errors
     
     try {
-      // In a real app, you would send the updated data to your backend
-      console.log("Submitting updated warranty data:", formData)
+      // Format the data according to the API requirements
+      const updateData: Record<string, any> = {
+        product: formData.product?._id, // Send only the product ID
+        purchaseDate: formData.purchaseDate ? new Date(formData.purchaseDate).toISOString().split('T')[0] : undefined,
+        expirationDate: formData.expirationDate ? new Date(formData.expirationDate).toISOString().split('T')[0] : undefined,
+        warrantyProvider: formData.warrantyProvider || undefined,
+        warrantyNumber: formData.warrantyNumber || undefined,
+        coverageDetails: formData.coverageDetails || undefined,
+        notes: formData.notes || undefined
+      }
       
-      // Wait for console to flush and state to update
-      await new Promise(resolve => setTimeout(resolve, 100))
+      // Remove undefined values
+      Object.keys(updateData).forEach(key => 
+        updateData[key] === undefined && delete updateData[key]
+      )
+      
+      // Ensure required fields are present
+      if (!updateData.product) {
+        setError('Product is required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (!updateData.purchaseDate) {
+        setError('Purchase date is required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (!updateData.expirationDate) {
+        setError('Expiration date is required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (!updateData.warrantyProvider) {
+        setError('Warranty provider is required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (!updateData.warrantyNumber) {
+        setError('Warranty number is required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (!updateData.coverageDetails) {
+        setError('Coverage details are required')
+        setIsSubmitting(false)
+        return
+      }
+      
+      console.log('Sending update data:', updateData) // Debug log
+      
+      const response = await warrantyApi.updateWarranty(warrantyId, updateData)
+      
+      if (response.error) {
+        // Handle validation errors
+        const error = typeof response.error === 'string' 
+          ? { message: response.error }
+          : response.error as ApiError
+
+        if (error.message === 'Validation error' && 'errors' in error && error.errors) {
+          const errorMessages = Array.isArray(error.errors) 
+            ? error.errors.join(', ')
+            : 'Please check all required fields'
+          setError(errorMessages)
+        } else {
+          setError(error.message || 'Failed to update warranty')
+        }
+        setIsSubmitting(false)
+        return
+      }
       
       // Navigate to the details page using replace to prevent back navigation to the form
       router.replace(`/user/warranties/${warrantyId}`)
     } catch (error) {
       console.error('Error updating warranty:', error)
-      alert("Failed to update warranty. Please try again.")
+      setError(error instanceof Error ? error.message : 'Failed to update warranty. Please try again.')
       setIsSubmitting(false)
     }
   }
@@ -254,6 +329,39 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                   </div>
                   
                   <div className="space-y-2">
+                    <Label htmlFor="warrantyNumber" className="text-amber-900">Warranty Number</Label>
+                    <Input
+                      id="warrantyNumber"
+                      name="warrantyNumber"
+                      value={safelyGetNestedValue(formData, 'warrantyNumber')}
+                      onChange={handleInputChange}
+                      className="border-2 border-amber-800 bg-amber-50"
+                      required
+                      disabled={isSubmitting}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="status" className="text-amber-900">Status</Label>
+                    <Select
+                      value={safelyGetNestedValue(formData, 'status')}
+                      onValueChange={(value) => handleSelectChange('status', value)}
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="active">Active</SelectItem>
+                        <SelectItem value="expiring">Expiring Soon</SelectItem>
+                        <SelectItem value="expired">Expired</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-2">
                     <Label htmlFor="purchaseDate" className="text-amber-900">Purchase Date</Label>
                     <Input
                       id="purchaseDate"
@@ -280,21 +388,6 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                       disabled={isSubmitting}
                     />
                   </div>
-                </div>
-                
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="warrantyNumber" className="text-amber-900">Warranty Number</Label>
-                    <Input
-                      id="warrantyNumber"
-                      name="warrantyNumber"
-                      value={safelyGetNestedValue(formData, 'warrantyNumber')}
-                      onChange={handleInputChange}
-                      className="border-2 border-amber-800 bg-amber-50"
-                      required
-                      disabled={isSubmitting}
-                    />
-                  </div>
                   
                   <div className="space-y-2">
                     <Label htmlFor="coverageDetails" className="text-amber-900">Coverage Details</Label>
@@ -303,7 +396,8 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                       name="coverageDetails"
                       value={safelyGetNestedValue(formData, 'coverageDetails')}
                       onChange={handleInputChange}
-                      className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
+                      className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
+                      required
                       disabled={isSubmitting}
                     />
                   </div>
@@ -315,32 +409,30 @@ export default function UserEditWarrantyForm({ warrantyId }: Props) {
                       name="notes"
                       value={safelyGetNestedValue(formData, 'notes')}
                       onChange={handleInputChange}
-                      className="border-2 border-amber-800 bg-amber-50 min-h-[80px]"
+                      className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
                       disabled={isSubmitting}
                     />
                   </div>
                 </div>
               </div>
               
-              <div className="mt-6 flex justify-end">
-                <Button 
+              {error && (
+                <div className="mt-4 p-4 bg-red-50 border-2 border-red-800 rounded-lg flex items-center">
+                  <AlertTriangle className="h-5 w-5 text-red-800 mr-2" />
+                  <p className="text-red-800">{error}</p>
+                </div>
+              )}
+              
+              <CardFooter className="px-0 pt-6">
+                <Button
                   type="submit"
-                  className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
+                  className="w-full bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
                   disabled={isSubmitting}
                 >
-                  {isSubmitting ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin mr-2 h-4 w-4 border-2 border-amber-100 border-t-transparent rounded-full" />
-                      Saving...
-                    </div>
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save Changes
-                    </>
-                  )}
+                  <Save className="mr-2 h-4 w-4" />
+                  {isSubmitting ? 'Saving...' : 'Save Changes'}
                 </Button>
-              </div>
+              </CardFooter>
             </form>
           </CardContent>
         </Card>

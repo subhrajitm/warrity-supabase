@@ -21,6 +21,7 @@ import {
   Clock
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 import { adminApi, warrantyApi } from "@/lib/api"
 import { toast } from "sonner"
@@ -86,12 +87,16 @@ export default function AdminWarrantiesPage() {
 
   // Fetch warranties initially
   useEffect(() => {
-    fetchWarranties()
+    if (isAuthenticated && user?.role === 'admin') {
+      router.refresh() // Refresh router cache
+      fetchWarranties()
+    }
   }, [isAuthenticated, user?.role, authLoading])
 
   // Refetch warranties when page gains focus
   useEffect(() => {
     const onFocus = () => {
+      router.refresh() // Refresh router cache
       fetchWarranties()
     }
     window.addEventListener('focus', onFocus)
@@ -102,6 +107,7 @@ export default function AdminWarrantiesPage() {
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
+        router.refresh() // Refresh router cache
         fetchWarranties()
       }
     }
@@ -248,199 +254,99 @@ export default function AdminWarrantiesPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-3 h-4 w-4 text-amber-800" />
               <Input
+                type="text"
                 placeholder="Search warranties..."
                 value={searchQuery}
                 onChange={handleSearchChange}
                 className="pl-10 border-2 border-amber-800 bg-amber-50"
               />
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="text-amber-800 whitespace-nowrap">Status:</span>
-              <div className="flex space-x-2">
-                <Button 
-                  variant={statusFilter === "all" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setStatusFilter("all")}
-                  className={statusFilter === "all" 
-                    ? "bg-amber-800 text-amber-100" 
-                    : "border-amber-800 text-amber-800"
-                  }
-                >
-                  All
-                </Button>
-                <Button 
-                  variant={statusFilter === "active" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setStatusFilter("active")}
-                  className={statusFilter === "active" 
-                    ? "bg-green-700 text-green-100 border-green-800" 
-                    : "border-green-700 text-green-700"
-                  }
-                >
-                  Active
-                </Button>
-                <Button 
-                  variant={statusFilter === "expiring" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setStatusFilter("expiring")}
-                  className={statusFilter === "expiring" 
-                    ? "bg-amber-700 text-amber-100 border-amber-800" 
-                    : "border-amber-700 text-amber-700"
-                  }
-                >
-                  Expiring
-                </Button>
-                <Button 
-                  variant={statusFilter === "expired" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setStatusFilter("expired")}
-                  className={statusFilter === "expired" 
-                    ? "bg-red-700 text-red-100 border-red-800" 
-                    : "border-red-700 text-red-700"
-                  }
-                >
-                  Expired
-                </Button>
+            <div className="flex items-center gap-2">
+              <Select
+                value={statusFilter}
+                onValueChange={setStatusFilter}
+              >
+                <SelectTrigger className="w-[180px] border-2 border-amber-800 bg-amber-50">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="expiring">Expiring Soon</SelectItem>
+                  <SelectItem value="expired">Expired</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4">
+        {filteredWarranties.map((warranty) => (
+          <Card key={warranty._id} className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+            <CardContent className="p-6">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-xl font-semibold text-amber-900">
+                      {warranty.product?.name || 'Unnamed Product'}
+                    </h3>
+                    {getStatusBadge(warranty.status)}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-amber-800">
+                    <div>
+                      <p className="font-medium">Manufacturer:</p>
+                      <p>{warranty.product?.manufacturer || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Warranty Provider:</p>
+                      <p>{warranty.warrantyProvider}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">User:</p>
+                      <p>{warranty.user?.name || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Email:</p>
+                      <p>{warranty.user?.email || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Purchase Date:</p>
+                      <p>{new Date(warranty.purchaseDate).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">Expiration Date:</p>
+                      <p>{new Date(warranty.expirationDate).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link href={`/admin/warranties/${warranty._id}`}>
+                    <Button variant="outline" className="border-2 border-amber-800 text-amber-800">
+                      <FileText className="h-4 w-4 mr-2" />
+                      View Details
+                    </Button>
+                  </Link>
+                  <Link href={`/admin/warranties/${warranty._id}/edit`}>
+                    <Button variant="outline" className="border-2 border-amber-800 text-amber-800">
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit
+                    </Button>
+                  </Link>
+                  <Button 
+                    variant="outline" 
+                    className="border-2 border-red-600 text-red-600 hover:bg-red-50"
+                    onClick={() => handleDeleteWarranty(warranty._id || '')}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete
+                  </Button>
+                </div>
               </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-      
-      <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-        <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-          <div className="flex justify-between items-center">
-            <CardTitle className="text-xl font-bold text-amber-900">
-              {filteredWarranties.length} {filteredWarranties.length === 1 ? 'Warranty' : 'Warranties'}
-            </CardTitle>
-            <div className="flex items-center text-sm text-amber-800">
-              <Filter className="h-4 w-4 mr-1" />
-              Sort by:
-              <button 
-                className="ml-2 flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('product.name')}
-              >
-                Product {getSortIcon('product.name')}
-              </button>
-              <span className="mx-2">|</span>
-              <button 
-                className="flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('expirationDate')}
-              >
-                Expiry Date {getSortIcon('expirationDate')}
-              </button>
-              <span className="mx-2">|</span>
-              <button 
-                className="flex items-center font-medium hover:text-amber-600"
-                onClick={() => handleSortChange('createdAt')}
-              >
-                Created {getSortIcon('createdAt')}
-              </button>
-            </div>
-          </div>
-        </CardHeader>
-        
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-amber-200 border-b-2 border-amber-800">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Product
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Warranty #
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Provider
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Purchase Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Expiration Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-amber-900 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-amber-50 divide-y divide-amber-200">
-                {filteredWarranties.length === 0 ? (
-                  <tr key="no-warranties">
-                    <td colSpan={7} className="px-6 py-10 text-center text-amber-800">
-                      <FileText className="h-12 w-12 mx-auto mb-2 text-amber-400" />
-                      <p className="text-lg font-medium">No warranties found</p>
-                      <p className="text-sm">Try adjusting your search or add a new warranty</p>
-                    </td>
-                  </tr>
-                ) : (
-                  // In the table rows where you render the warranties
-                  filteredWarranties.map((warranty, index) => (
-                    <tr key={`${warranty._id}-${index}`} className="hover:bg-amber-100">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-amber-900">{warranty.product?.name || 'Unknown Product'}</div>
-                        <div className="text-sm text-amber-700">{warranty.product?.manufacturer || 'Unknown Manufacturer'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.warrantyNumber}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{warranty.warrantyProvider}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{new Date(warranty.purchaseDate).toLocaleDateString()}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-amber-800">{new Date(warranty.expirationDate).toLocaleDateString()}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(warranty.status)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex justify-end space-x-2">
-                          <Link href={warranty._id ? `/admin/warranties/${warranty._id}` : "#"}>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="border-amber-800 text-amber-800"
-                              disabled={!warranty._id}
-                            >
-                              <FileText className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Link href={warranty._id ? `/admin/warranties/${warranty._id}/edit` : "#"}>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              className="border-amber-800 text-amber-800"
-                              disabled={!warranty._id}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                          </Link>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            className="border-red-800 text-red-800"
-                            onClick={() => warranty._id ? handleDeleteWarranty(warranty._id) : null}
-                            disabled={!warranty._id}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   )
 }

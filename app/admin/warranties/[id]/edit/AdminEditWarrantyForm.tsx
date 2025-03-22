@@ -11,6 +11,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Save, Shield } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { toast } from "sonner"
+import { warrantyApi } from "@/lib/api"
+import type { Warranty, WarrantyInput } from "@/types/warranty"
 
 // Mock data for demonstration
 const mockWarranty = {
@@ -70,21 +73,16 @@ interface Props {
 export default function AdminEditWarrantyForm({ warrantyId }: Props) {
   const router = useRouter()
   const { user: authUser, isAuthenticated, isLoading: authLoading } = useAuth()
-  const [formData, setFormData] = useState<FormData>({
-    product: "",
-    category: "",
+  const [formData, setFormData] = useState<Partial<Warranty>>({
+    product: { _id: "", name: "", manufacturer: "" },
     purchaseDate: "",
-    startDate: "",
-    endDate: "",
-    price: "",
-    status: "",
-    provider: "",
-    type: "",
-    terms: "",
-    extendable: "",
-    claimProcess: "",
+    expirationDate: "",
+    warrantyProvider: "",
+    warrantyNumber: "",
     coverageDetails: "",
-    userId: ""
+    notes: "",
+    status: "active",
+    documents: []
   })
   const [users, setUsers] = useState<User[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -97,20 +95,28 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
         return
       }
 
-      // In a real app, you would fetch the warranty data based on the ID
-      console.log(`Fetching warranty with ID: ${warrantyId} for editing`)
-      
-      // Set mock data
-      // Convert userId to string to match our FormData type
-      const formattedWarranty = {
-        ...mockWarranty,
-        userId: mockWarranty.userId.toString()
-      }
-      setFormData(formattedWarranty as FormData)
-      setUsers(mockUsers)
-      setIsLoading(false)
+      fetchWarrantyData()
     }
   }, [router, warrantyId, authLoading, isAuthenticated])
+
+  const fetchWarrantyData = async () => {
+    try {
+      const response = await warrantyApi.getWarrantyById(warrantyId)
+      if (response.error) {
+        toast.error('Failed to fetch warranty: ' + response.error)
+        router.push('/admin/warranties')
+        return
+      }
+      if (response.data) {
+        setFormData(response.data)
+      }
+    } catch (error) {
+      console.error('Error fetching warranty:', error)
+      toast.error('An error occurred while fetching the warranty')
+    } finally {
+      setIsLoading(false)
+    }
+  }
   
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -125,14 +131,18 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
     e.preventDefault()
     
     try {
-      // In a real app, you would send the updated data to your backend
-      console.log("Submitting updated warranty data:", formData)
+      const response = await warrantyApi.updateWarranty(warrantyId, formData)
+      if (response.error) {
+        toast.error('Failed to update warranty: ' + response.error)
+        return
+      }
       
-      // Redirect back to warranty details page
-      router.push(`/warranties/${warrantyId}`)
+      toast.success('Warranty updated successfully')
+      router.refresh() // Refresh router cache
+      router.push(`/admin/warranties/${warrantyId}`)
     } catch (error) {
       console.error('Error updating warranty:', error)
-      // Handle error (show toast notification, etc.)
+      toast.error('An error occurred while updating the warranty')
     }
   }
   
@@ -159,7 +169,7 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
             Edit Warranty
           </CardTitle>
           <CardDescription className="text-amber-800">
-            Update the warranty information for {formData.product}
+            Update the warranty information
           </CardDescription>
         </CardHeader>
         
@@ -168,11 +178,11 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="product" className="text-amber-900">Product Name</Label>
+                  <Label htmlFor="warrantyProvider" className="text-amber-900">Warranty Provider</Label>
                   <Input
-                    id="product"
-                    name="product"
-                    value={formData.product}
+                    id="warrantyProvider"
+                    name="warrantyProvider"
+                    value={formData.warrantyProvider || ""}
                     onChange={handleInputChange}
                     className="border-2 border-amber-800 bg-amber-50"
                     required
@@ -180,92 +190,24 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="category" className="text-amber-900">Category</Label>
-                  <Select 
-                    value={formData.category} 
-                    onValueChange={(value) => handleSelectChange("category", value)}
-                  >
-                    <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Electronics">Electronics</SelectItem>
-                      <SelectItem value="Appliances">Appliances</SelectItem>
-                      <SelectItem value="Furniture">Furniture</SelectItem>
-                      <SelectItem value="Automotive">Automotive</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="provider" className="text-amber-900">Provider/Manufacturer</Label>
+                  <Label htmlFor="warrantyNumber" className="text-amber-900">Warranty Number</Label>
                   <Input
-                    id="provider"
-                    name="provider"
-                    value={formData.provider}
+                    id="warrantyNumber"
+                    name="warrantyNumber"
+                    value={formData.warrantyNumber || ""}
                     onChange={handleInputChange}
                     className="border-2 border-amber-800 bg-amber-50"
                     required
                   />
                 </div>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="price" className="text-amber-900">Product Price</Label>
-                  <Input
-                    id="price"
-                    name="price"
-                    value={formData.price}
-                    onChange={handleInputChange}
-                    className="border-2 border-amber-800 bg-amber-50"
-                    placeholder="Enter price without currency symbol"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="type" className="text-amber-900">Warranty Type</Label>
-                  <Select 
-                    value={formData.type} 
-                    onValueChange={(value) => handleSelectChange("type", value)}
-                  >
-                    <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                      <SelectValue placeholder="Select warranty type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="limited">Limited</SelectItem>
-                      <SelectItem value="lifetime">Lifetime</SelectItem>
-                      <SelectItem value="extended">Extended</SelectItem>
-                      <SelectItem value="manufacturer">Manufacturer</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="extendable" className="text-amber-900">Extendable</Label>
-                  <Select 
-                    value={formData.extendable} 
-                    onValueChange={(value) => handleSelectChange("extendable", value)}
-                  >
-                    <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                      <SelectValue placeholder="Select if warranty is extendable" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yes">Yes</SelectItem>
-                      <SelectItem value="no">No</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="purchaseDate" className="text-amber-900">Purchase Date</Label>
                   <Input
                     id="purchaseDate"
                     name="purchaseDate"
                     type="date"
-                    value={formData.purchaseDate}
+                    value={formData.purchaseDate ? formData.purchaseDate.split('T')[0] : ""}
                     onChange={handleInputChange}
                     className="border-2 border-amber-800 bg-amber-50"
                     required
@@ -273,25 +215,12 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="startDate" className="text-amber-900">Warranty Start Date</Label>
+                  <Label htmlFor="expirationDate" className="text-amber-900">Expiration Date</Label>
                   <Input
-                    id="startDate"
-                    name="startDate"
+                    id="expirationDate"
+                    name="expirationDate"
                     type="date"
-                    value={formData.startDate}
-                    onChange={handleInputChange}
-                    className="border-2 border-amber-800 bg-amber-50"
-                    required
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="endDate" className="text-amber-900">Warranty End Date</Label>
-                  <Input
-                    id="endDate"
-                    name="endDate"
-                    type="date"
-                    value={formData.endDate}
+                    value={formData.expirationDate ? formData.expirationDate.split('T')[0] : ""}
                     onChange={handleInputChange}
                     className="border-2 border-amber-800 bg-amber-50"
                     required
@@ -301,83 +230,59 @@ export default function AdminEditWarrantyForm({ warrantyId }: Props) {
                 <div className="space-y-2">
                   <Label htmlFor="status" className="text-amber-900">Status</Label>
                   <Select 
-                    value={formData.status} 
+                    value={formData.status || "active"} 
                     onValueChange={(value) => handleSelectChange("status", value)}
                   >
                     <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                      <SelectValue placeholder="Select warranty status" />
+                      <SelectValue placeholder="Select status" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="active">Active</SelectItem>
                       <SelectItem value="expiring">Expiring Soon</SelectItem>
                       <SelectItem value="expired">Expired</SelectItem>
-                      <SelectItem value="claimed">Claimed</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="coverageDetails" className="text-amber-900">Coverage Details</Label>
+                  <Textarea
+                    id="coverageDetails"
+                    name="coverageDetails"
+                    value={formData.coverageDetails || ""}
+                    onChange={handleInputChange}
+                    className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
+                    required
+                  />
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="userId" className="text-amber-900">Assigned User</Label>
-                  <Select 
-                    value={formData.userId} 
-                    onValueChange={(value) => handleSelectChange("userId", value)}
-                  >
-                    <SelectTrigger className="border-2 border-amber-800 bg-amber-50">
-                      <SelectValue placeholder="Select user" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.name} ({user.email})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="notes" className="text-amber-900">Notes</Label>
+                  <Textarea
+                    id="notes"
+                    name="notes"
+                    value={formData.notes || ""}
+                    onChange={handleInputChange}
+                    className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
+                  />
                 </div>
               </div>
             </div>
             
-            <div className="mt-6 space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="terms" className="text-amber-900">Warranty Terms</Label>
-                <Textarea
-                  id="terms"
-                  name="terms"
-                  value={formData.terms}
-                  onChange={handleInputChange}
-                  className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
-                  placeholder="Enter the warranty terms and conditions"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="claimProcess" className="text-amber-900">Claim Process</Label>
-                <Textarea
-                  id="claimProcess"
-                  name="claimProcess"
-                  value={formData.claimProcess}
-                  onChange={handleInputChange}
-                  className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
-                  placeholder="Describe the process for making a warranty claim"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="coverageDetails" className="text-amber-900">Coverage Details</Label>
-                <Textarea
-                  id="coverageDetails"
-                  name="coverageDetails"
-                  value={formData.coverageDetails}
-                  onChange={handleInputChange}
-                  className="border-2 border-amber-800 bg-amber-50 min-h-[100px]"
-                  placeholder="Specify what is covered under this warranty"
-                />
-              </div>
-            </div>
-            
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex justify-end gap-4">
+              <Link href={`/admin/warranties/${warrantyId}`}>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="border-2 border-amber-800 text-amber-800"
+                >
+                  Cancel
+                </Button>
+              </Link>
               <Button 
-                type="submit"
+                type="submit" 
                 className="bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"
               >
                 <Save className="mr-2 h-4 w-4" />

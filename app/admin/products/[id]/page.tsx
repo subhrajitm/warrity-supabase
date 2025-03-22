@@ -24,36 +24,7 @@ export default function AdminProductPage({ params }: PageProps) {
   const [isLoading, setIsLoading] = useState(true)
   const { id } = use(params)
 
-  useEffect(() => {
-    const fetchProduct = async () => {
-      if (!isAuthenticated) return
-      if (user?.role !== 'admin') return
-      
-      try {
-        const response = await productApi.getProductById(id)
-        if (response.error) {
-          toast.error('Failed to fetch product: ' + response.error)
-          return
-        }
-        if (response.data?.product) {
-          // Map MongoDB _id to frontend id
-          const productData = {
-            ...response.data.product,
-            id: response.data.product._id
-          } as Product
-          setProduct(productData)
-        }
-      } catch (error) {
-        toast.error('An error occurred while fetching the product')
-        console.error('Error fetching product:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchProduct()
-  }, [isAuthenticated, user?.role, id])
-
+  // Handle authentication first
   useEffect(() => {
     if (!isAuthenticated) {
       router.replace('/login')
@@ -64,6 +35,55 @@ export default function AdminProductPage({ params }: PageProps) {
       return
     }
   }, [isAuthenticated, user?.role, router])
+
+  const fetchProduct = async () => {
+    if (!isAuthenticated || user?.role !== 'admin') return
+    
+    try {
+      // Force a fresh fetch by adding a timestamp
+      const timestamp = new Date().getTime()
+      const response = await productApi.getProduct(id)
+      
+      if (response.error) {
+        toast.error('Failed to fetch product: ' + response.error)
+        return
+      }
+      if (response.data) {
+        // Map MongoDB _id to frontend id and add timestamp
+        const productData = {
+          ...response.data,
+          id: response.data._id,
+          _timestamp: timestamp // Add timestamp to force re-render
+        } as Product
+        setProduct(productData)
+      }
+    } catch (error) {
+      toast.error('An error occurred while fetching the product')
+      console.error('Error fetching product:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch on mount and when id changes
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'admin') {
+      router.refresh() // Refresh router cache
+      fetchProduct()
+    }
+  }, [isAuthenticated, user?.role, id])
+
+  // Add effect to refresh data when page becomes visible
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isAuthenticated && user?.role === 'admin') {
+        router.refresh() // Refresh router cache
+        fetchProduct()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [isAuthenticated, user?.role])
 
   if (isLoading) {
     return (

@@ -10,26 +10,81 @@ import {
   AlertTriangle, 
   CheckCircle, 
   Clock,
-  BarChart3
+  BarChart3,
+  AlertCircle,
+  XCircle
 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
+import { adminApi } from "@/lib/api"
+import { toast } from "sonner"
+
+interface DashboardStats {
+  totalProducts: number;
+  totalUsers: number;
+  totalWarranties: number;
+  activeWarranties: number;
+  expiringWarranties: number;
+  expiredWarranties: number;
+  warrantyByCategory: {
+    category: string;
+    count: number;
+  }[];
+  recentWarranties: any[];
+}
 
 export default function AdminDashboard() {
   const router = useRouter()
   const { user, isAuthenticated, isLoading } = useAuth()
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [loading, setLoading] = useState(true)
   
-  // Check if admin is logged in
+  // Check if admin is logged in and fetch stats
   useEffect(() => {
     if (!isLoading) {
       if (!isAuthenticated) {
         router.replace('/login')
       } else if (user && user.role !== 'admin') {
         router.replace(user.role === 'user' ? '/user' : '/login')
+      } else {
+        fetchDashboardStats()
       }
     }
   }, [isAuthenticated, isLoading, router, user])
+
+  const fetchDashboardStats = async () => {
+    try {
+      const [warrantyAnalytics, productAnalytics, usersResponse] = await Promise.all([
+        adminApi.getWarrantyAnalytics(),
+        adminApi.getProductAnalytics(),
+        adminApi.getAllUsers()
+      ])
+
+      if (warrantyAnalytics.error || productAnalytics.error || usersResponse.error) {
+        toast.error('Failed to fetch dashboard stats')
+        return
+      }
+
+      if (warrantyAnalytics.data && productAnalytics.data && usersResponse.data) {
+        setStats({
+          totalProducts: productAnalytics.data.totalProducts,
+          totalUsers: usersResponse.data.users.length,
+          totalWarranties: warrantyAnalytics.data.totalWarranties,
+          activeWarranties: warrantyAnalytics.data.activeWarranties,
+          expiringWarranties: warrantyAnalytics.data.expiringWarranties,
+          expiredWarranties: warrantyAnalytics.data.expiredWarranties,
+          warrantyByCategory: productAnalytics.data.productsByCategory,
+          recentWarranties: []
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error)
+      toast.error('An error occurred while fetching dashboard stats')
+    } finally {
+      setLoading(false)
+    }
+  }
   
-  if (isLoading) {
+  if (isLoading || loading) {
     return (
       <div className="min-h-screen bg-amber-50 flex items-center justify-center p-6">
         <div className="text-amber-800 text-xl flex items-center">
@@ -47,13 +102,13 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
           <CardContent className="p-6">
-            <div className="flex justify-between items-center">
+            <div className="bg-amber-50 p-6 rounded-lg border-2 border-amber-800 flex items-center justify-between">
               <div>
                 <p className="text-amber-800 text-sm font-medium">Total Products</p>
-                <h3 className="text-3xl font-bold text-amber-900 mt-1">124</h3>
+                <h3 className="text-3xl font-bold text-amber-900 mt-1">{stats?.totalProducts || 0}</h3>
               </div>
               <div className="h-12 w-12 bg-amber-200 rounded-full flex items-center justify-center">
-                <Package className="h-6 w-6 text-amber-800" />
+                <Package className="h-6 w-6 text-amber-900" />
               </div>
             </div>
           </CardContent>
@@ -61,13 +116,27 @@ export default function AdminDashboard() {
         
         <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
           <CardContent className="p-6">
-            <div className="flex justify-between items-center">
+            <div className="bg-amber-50 p-6 rounded-lg border-2 border-amber-800 flex items-center justify-between">
+              <div>
+                <p className="text-amber-800 text-sm font-medium">Active Warranties</p>
+                <h3 className="text-3xl font-bold text-amber-900 mt-1">{stats?.activeWarranties || 0}</h3>
+              </div>
+              <div className="h-12 w-12 bg-amber-200 rounded-full flex items-center justify-center">
+                <CheckCircle className="h-6 w-6 text-amber-900" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+          <CardContent className="p-6">
+            <div className="bg-amber-50 p-6 rounded-lg border-2 border-amber-800 flex items-center justify-between">
               <div>
                 <p className="text-amber-800 text-sm font-medium">Total Users</p>
-                <h3 className="text-3xl font-bold text-amber-900 mt-1">1,254</h3>
+                <h3 className="text-3xl font-bold text-amber-900 mt-1">{stats?.totalUsers || 0}</h3>
               </div>
               <div className="h-12 w-12 bg-amber-200 rounded-full flex items-center justify-center">
-                <Users className="h-6 w-6 text-amber-800" />
+                <Users className="h-6 w-6 text-amber-900" />
               </div>
             </div>
           </CardContent>
@@ -75,27 +144,13 @@ export default function AdminDashboard() {
         
         <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
           <CardContent className="p-6">
-            <div className="flex justify-between items-center">
+            <div className="bg-amber-50 p-6 rounded-lg border-2 border-amber-800 flex items-center justify-between">
               <div>
                 <p className="text-amber-800 text-sm font-medium">Total Warranties</p>
-                <h3 className="text-3xl font-bold text-amber-900 mt-1">3,872</h3>
+                <h3 className="text-3xl font-bold text-amber-900 mt-1">{stats?.totalWarranties || 0}</h3>
               </div>
               <div className="h-12 w-12 bg-amber-200 rounded-full flex items-center justify-center">
-                <FileText className="h-6 w-6 text-amber-800" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-amber-800 text-sm font-medium">Expired Warranties</p>
-                <h3 className="text-3xl font-bold text-amber-900 mt-1">245</h3>
-              </div>
-              <div className="h-12 w-12 bg-amber-200 rounded-full flex items-center justify-center">
-                <AlertTriangle className="h-6 w-6 text-amber-800" />
+                <FileText className="h-6 w-6 text-amber-900" />
               </div>
             </div>
           </CardContent>
@@ -114,8 +169,19 @@ export default function AdminDashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
-            <div className="h-64 flex items-center justify-center">
-              <p className="text-amber-800">Chart placeholder - Warranty statistics by status</p>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center">
+                <p className="text-amber-800 text-sm font-medium">Active Warranties</p>
+                <h3 className="text-2xl font-bold text-amber-900 mt-1">{stats?.activeWarranties || 0}</h3>
+              </div>
+              <div className="text-center">
+                <p className="text-amber-800 text-sm font-medium">Expiring Warranties</p>
+                <h3 className="text-2xl font-bold text-amber-900 mt-1">{stats?.expiringWarranties || 0}</h3>
+              </div>
+              <div className="text-center">
+                <p className="text-amber-800 text-sm font-medium">Expired Warranties</p>
+                <h3 className="text-2xl font-bold text-amber-900 mt-1">{stats?.expiredWarranties || 0}</h3>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -123,71 +189,37 @@ export default function AdminDashboard() {
         <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
           <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
             <CardTitle className="text-xl font-bold text-amber-900">
-              Warranty Status
+              <Clock className="inline-block mr-2 h-5 w-5" />
+              Recent Activity
             </CardTitle>
+            <CardDescription className="text-amber-800">
+              Latest warranty registrations and updates
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center">
-                  <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <span className="text-amber-900">Active</span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-amber-900 font-medium">New Warranties</p>
+                  <p className="text-amber-700 text-sm">Last 24 hours</p>
                 </div>
-                <span className="font-bold text-amber-900">2,458</span>
+                <div className="h-8 w-8 bg-amber-200 rounded-full flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-amber-800" />
+                </div>
               </div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center">
-                  <div className="h-8 w-8 bg-amber-100 rounded-full flex items-center justify-center mr-3">
-                    <Clock className="h-4 w-4 text-amber-600" />
-                  </div>
-                  <span className="text-amber-900">Expiring Soon</span>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-amber-900 font-medium">Expiring Soon</p>
+                  <p className="text-amber-700 text-sm">Next 7 days</p>
                 </div>
-                <span className="font-bold text-amber-900">1,169</span>
-              </div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center">
-                  <div className="h-8 w-8 bg-red-100 rounded-full flex items-center justify-center mr-3">
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
-                  </div>
-                  <span className="text-amber-900">Expired</span>
+                <div className="h-8 w-8 bg-amber-200 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="h-4 w-4 text-amber-800" />
                 </div>
-                <span className="font-bold text-amber-900">245</span>
               </div>
             </div>
           </CardContent>
         </Card>
       </div>
-      
-      <Card className="border-4 border-amber-800 shadow-[4px_4px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
-        <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
-          <CardTitle className="text-xl font-bold text-amber-900">
-            Recent Activity
-          </CardTitle>
-          <CardDescription className="text-amber-800">
-            Latest actions across the platform
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="space-y-4">
-            {[1, 2, 3, 4, 5].map((item) => (
-              <div key={item} className="flex items-start pb-4 border-b border-amber-200 last:border-0 last:pb-0">
-                <div className="h-10 w-10 bg-amber-200 rounded-full flex items-center justify-center mr-4 flex-shrink-0">
-                  <Users className="h-5 w-5 text-amber-800" />
-                </div>
-                <div>
-                  <p className="text-amber-900 font-medium">New user registered</p>
-                  <p className="text-amber-700 text-sm">John Doe created a new account</p>
-                  <p className="text-amber-500 text-xs mt-1">2 hours ago</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
