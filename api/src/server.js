@@ -51,12 +51,23 @@ app.use(helmet());
 // Compression middleware
 app.use(compression());
 
-// CORS configuration
+// CORS configuration - Handle multiple origins
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',');
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.match(/^http(s)?:\/\/localhost:\d+$/)) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked request from origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true // Changed back to true to allow credentials
+  credentials: true
 };
 app.use(cors(corsOptions));
 
@@ -113,7 +124,9 @@ app.use('/api/upload', uploadRoutes);
 app.get('/', (req, res) => {
   res.json({
     message: 'Welcome to Warrity API',
-    version: '1.0.0'
+    version: '1.0.0',
+    env: process.env.NODE_ENV,
+    baseUrl: process.env.API_URL || `http://localhost:${process.env.PORT || 5000}`
   });
 });
 
