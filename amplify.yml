@@ -1,18 +1,17 @@
 version: 1
+backend:
+  phases:
+    build:
+      commands:
+        - amplifyPush --simple
 frontend:
   phases:
     preBuild:
       commands:
-        - npm install -g pnpm
-        - pnpm install
-        - cp .env.amplify .env.production
-        - echo "NEXT_PUBLIC_API_URL=https://api.warrity.com/api" >> .env.production
-        - echo "NEXT_PUBLIC_APP_URL=https://stable-21-03-25.dkewumso9wy5d.amplifyapp.com" >> .env.production
-        - echo "NEXT_PUBLIC_UPLOAD_URL=https://uploads.warrity.com" >> .env.production
-        - echo "NEXTAUTH_URL=https://stable-21-03-25.dkewumso9wy5d.amplifyapp.com" >> .env.production
+        - npm ci
     build:
       commands:
-        - pnpm build
+        - npm run build
   artifacts:
     baseDirectory: .next
     files:

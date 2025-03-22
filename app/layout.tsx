@@ -6,6 +6,9 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/lib/auth-context"
 import { Toaster } from "sonner"
 
+// Import AWS Amplify configuration
+import '@/lib/amplify-config'
+
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {

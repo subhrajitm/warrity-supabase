@@ -13,6 +13,7 @@
     "validate-imports": "node scripts/validate-imports.js"
   },
   "dependencies": {
+    "@aws-amplify/ui-react": "^6.9.4",
     "@emotion/is-prop-valid": "latest",
     "@hookform/resolvers": "^3.9.1",
     "@radix-ui/react-accordion": "^1.2.2",
@@ -44,6 +45,7 @@
     "@radix-ui/react-tooltip": "^1.1.6",
     "@types/js-cookie": "^3.0.6",
     "autoprefixer": "^10.4.20",
+    "aws-amplify": "^6.13.6",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
