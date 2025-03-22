@@ -1,7 +1,7 @@
 import { Amplify } from 'aws-amplify';
 
-// Get App ID from environment variables or use the default
-const amplifyAppId = process.env.NEXT_PUBLIC_AMPLIFY_APP_ID || 'd2aemy150tlfm7';
+// Get App ID from environment variables or use the correct App ID
+const amplifyAppId = process.env.NEXT_PUBLIC_AMPLIFY_APP_ID || 'd37ec0x3muq59q';
 const awsRegion = process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
 
 // Configure Amplify with minimal configuration focusing on API only

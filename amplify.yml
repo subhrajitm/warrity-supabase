@@ -10,9 +10,10 @@ frontend:
       commands:
         - npm install -g pnpm
         - pnpm install
-        - echo "Setting AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d2aemy150tlfm7}"
+        - echo "Setting AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d37ec0x3muq59q}"
         - echo "NEXT_PUBLIC_AWS_REGION=${AWS_REGION:-us-east-1}" >> .env.local
-        - echo "NEXT_PUBLIC_AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d2aemy150tlfm7}" >> .env.local
+        - echo "NEXT_PUBLIC_AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d37ec0x3muq59q}" >> .env.local
+        - echo "NEXT_PUBLIC_API_URL=https://api.warrity.com" >> .env.local
     build:
       commands:
         - pnpm run build
