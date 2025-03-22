@@ -1,12 +1,21 @@
 version: 1
+backend:
+  phases:
+    build:
+      commands:
+        - echo "No backend deployment required"
 frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
+        - npm install -g pnpm
+        - pnpm install
+        - echo "Setting AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d2aemy150tlfm7}"
+        - echo "NEXT_PUBLIC_AWS_REGION=${AWS_REGION:-us-east-1}" >> .env.local
+        - echo "NEXT_PUBLIC_AMPLIFY_APP_ID=${AMPLIFY_APP_ID:-d2aemy150tlfm7}" >> .env.local
     build:
       commands:
-        - npm run build
+        - pnpm run build
   artifacts:
     baseDirectory: .next
     files:
@@ -14,6 +23,7 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+      - .pnpm-store/**/*
   customHeaders:
     - pattern: '**/*'
       headers:
@@ -28,15 +38,16 @@ api:
     preBuild:
       commands:
         - cd api
-        - npm install
+        - npm install -g pnpm
+        - pnpm install
         - cp .env.production .env
     build:
       commands:
-        - npm ci --production
-        - npm run postbuild
+        - pnpm install --prod
+        - pnpm run postbuild
     start:
       commands:
-        - npm run start:pm2
+        - pnpm run start:pm2
   artifacts:
     baseDirectory: api
     files:
@@ -44,6 +55,7 @@ api:
   cache:
     paths:
       - api/node_modules/**/*
+      - api/.pnpm-store/**/*
   customHeaders:
     - pattern: '**/*'
       headers:

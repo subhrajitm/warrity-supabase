@@ -1,12 +1,16 @@
 import { Amplify } from 'aws-amplify';
 
+// Get App ID from environment variables or use the default
+const amplifyAppId = process.env.NEXT_PUBLIC_AMPLIFY_APP_ID || 'd2aemy150tlfm7';
+const awsRegion = process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1';
+
 // Configure Amplify with minimal configuration focusing on API only
 Amplify.configure({
   API: {
     REST: {
       'warrity-api': {
         endpoint: process.env.NEXT_PUBLIC_API_URL || 'https://api.warrity.com',
-        region: process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1',
+        region: awsRegion,
       }
     }
   },
@@ -15,8 +19,8 @@ Amplify.configure({
   Notifications: {
     InAppMessaging: {
       Pinpoint: {
-        appId: 'd2aemy150tlfm7',
-        region: process.env.NEXT_PUBLIC_AWS_REGION || 'us-east-1'
+        appId: amplifyAppId,
+        region: awsRegion
       }
     }
   }
