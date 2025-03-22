@@ -2,12 +2,16 @@
 import { Warranty, WarrantyInput, WarrantyDocument } from '../types/warranty';
 import { Product } from '../types/product';
 
-// Extend the Product type to include MongoDB _id field
+// Re-export everything from the Supabase adapter
+export * from './api-adapter';
+
+// Keep the Product type for backward compatibility 
 export interface ProductData extends Product {
   _id?: string; // MongoDB ID
 }
 
-interface ApiResponse<T = any> {
+// Keep the original API response interface for compatibility
+export interface ApiResponse<T = any> {
   data: T | null;
   error: string | null;
 }

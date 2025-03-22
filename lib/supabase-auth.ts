@@ -1,0 +1,194 @@
+import supabase from './supabase-config';
+
+/**
+ * Signs in a user with email and password
+ * @param email User's email
+ * @param password User's password
+ * @returns The user session or error
+ */
+export async function signInWithEmail(email: string, password: string) {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    
+    if (error) throw error;
+    
+    // Save the token to localStorage for backward compatibility
+    if (data.session?.access_token) {
+      localStorage.setItem('authToken', data.session.access_token);
+    }
+    
+    return { user: data.user, session: data.session };
+  } catch (error) {
+    console.error('Error signing in:', error);
+    throw error;
+  }
+}
+
+/**
+ * Signs up a new user with email and password
+ * @param email User's email
+ * @param password User's password
+ * @param data Additional user data
+ * @returns The user data or error
+ */
+export async function signUpWithEmail(
+  email: string, 
+  password: string,
+  data?: Record<string, any>
+) {
+  try {
+    const { data: authData, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data,
+      },
+    });
+    
+    if (error) throw error;
+    
+    // Save the token to localStorage for backward compatibility
+    if (authData.session?.access_token) {
+      localStorage.setItem('authToken', authData.session.access_token);
+    }
+    
+    return { user: authData.user, session: authData.session };
+  } catch (error) {
+    console.error('Error signing up:', error);
+    throw error;
+  }
+}
+
+/**
+ * Signs out the current user
+ */
+export async function signOut() {
+  try {
+    // Remove token from localStorage
+    localStorage.removeItem('authToken');
+    
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    
+    return true;
+  } catch (error) {
+    console.error('Error signing out:', error);
+    throw error;
+  }
+}
+
+/**
+ * Gets the current user session
+ * @returns The current session or null
+ */
+export async function getCurrentSession() {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    
+    return data.session;
+  } catch (error) {
+    console.error('Error getting current session:', error);
+    return null;
+  }
+}
+
+/**
+ * Gets the current user
+ * @returns The current user or null
+ */
+export async function getCurrentUser() {
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    
+    return data.user;
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
+}
+
+/**
+ * Resets a user's password
+ * @param email User's email
+ * @returns Success or error
+ */
+export async function resetPassword(email: string) {
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    
+    if (error) throw error;
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error resetting password:', error);
+    throw error;
+  }
+}
+
+/**
+ * Updates a user's password
+ * @param newPassword The new password
+ * @returns Success or error
+ */
+export async function updatePassword(newPassword: string) {
+  try {
+    const { error } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+    
+    if (error) throw error;
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error updating password:', error);
+    throw error;
+  }
+}
+
+/**
+ * Updates a user's profile
+ * @param data The profile data to update
+ * @returns The updated user or error
+ */
+export async function updateProfile(data: Record<string, any>) {
+  try {
+    const { data: user, error } = await supabase.auth.updateUser({
+      data,
+    });
+    
+    if (error) throw error;
+    
+    return user;
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sets up auth state change listeners
+ * @param callback Function to call when auth state changes
+ * @returns The subscription that can be used to unsubscribe
+ */
+export function onAuthStateChange(callback: (event: string, session: any) => void) {
+  return supabase.auth.onAuthStateChange((event, session) => {
+    // Save token to localStorage on sign in/sign up
+    if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session?.access_token) {
+      localStorage.setItem('authToken', session.access_token);
+    }
+    
+    // Remove token from localStorage on sign out
+    if (event === 'SIGNED_OUT') {
+      localStorage.removeItem('authToken');
+    }
+    
+    callback(event, session);
+  });
+} 

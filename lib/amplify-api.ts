@@ -1,20 +1,12 @@
-import { get, post, put, del } from 'aws-amplify/api';
-
 /**
- * Utility function to get the auth token from localStorage
- * (temporary solution until AWS Amplify Auth is set up)
+ * This file provides backward compatibility for code that imports from 'amplify-api.ts'
+ * but now uses Supabase instead of AWS Amplify
  */
-const getAuthToken = (): string | undefined => {
-  try {
-    return typeof window !== 'undefined' ? localStorage.getItem('authToken') || undefined : undefined;
-  } catch (error) {
-    console.error('Error getting auth token:', error);
-    return undefined;
-  }
-};
+
+import { supabaseGet, supabasePost, supabasePut, supabaseDelete } from './supabase-api';
 
 /**
- * Utility function to make GET requests using AWS Amplify API
+ * Utility function to make GET requests (previously using AWS Amplify, now using Supabase)
  * @param path - The API path to request
  * @param params - Query parameters to include in the request
  * @param options - Additional request options
@@ -26,45 +18,15 @@ export async function amplifyGet<T>(
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    const queryParams = params ? 
-      Object.entries(params)
-        .filter(([, value]) => value !== undefined)
-        .reduce((acc, [key, value]) => {
-          acc[key] = String(value);
-          return acc;
-        }, {} as Record<string, string>) 
-      : undefined;
-    
-    // Get auth token
-    const token = getAuthToken();
-    
-    const restOperation = get({
-      apiName: 'warrity-api',
-      path,
-      options: {
-        headers: {
-          ...(options?.headers || {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        queryParams
-      }
-    });
-    
-    const response = await restOperation.response;
-    const result = await response.body.json();
-    return result as T;
+    return await supabaseGet<T>(path, params, options);
   } catch (error) {
     console.error(`Error making GET request to ${path}:`, error);
-    if (error && typeof error === 'object' && 'response' in error) {
-      const apiError = error as { response: { statusCode: number, body: string } };
-      console.error('API error:', apiError.response.statusCode, apiError.response.body);
-    }
     throw error;
   }
 }
 
 /**
- * Utility function to make POST requests using AWS Amplify API
+ * Utility function to make POST requests (previously using AWS Amplify, now using Supabase)
  * @param path - The API path to request
  * @param data - The request body
  * @param options - Additional request options
@@ -76,37 +38,15 @@ export async function amplifyPost<T>(
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth token
-    const token = getAuthToken();
-    
-    const restOperation = post({
-      apiName: 'warrity-api',
-      path,
-      options: {
-        body: data,
-        headers: {
-          ...(options?.headers || {}),
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      }
-    });
-    
-    const response = await restOperation.response;
-    const result = await response.body.json();
-    return result as T;
+    return await supabasePost<T>(path, data, options);
   } catch (error) {
     console.error(`Error making POST request to ${path}:`, error);
-    if (error && typeof error === 'object' && 'response' in error) {
-      const apiError = error as { response: { statusCode: number, body: string } };
-      console.error('API error:', apiError.response.statusCode, apiError.response.body);
-    }
     throw error;
   }
 }
 
 /**
- * Utility function to make PUT requests using AWS Amplify API
+ * Utility function to make PUT requests (previously using AWS Amplify, now using Supabase)
  * @param path - The API path to request
  * @param data - The request body
  * @param options - Additional request options
@@ -118,37 +58,15 @@ export async function amplifyPut<T>(
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth token
-    const token = getAuthToken();
-    
-    const restOperation = put({
-      apiName: 'warrity-api',
-      path,
-      options: {
-        body: data,
-        headers: {
-          ...(options?.headers || {}),
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      }
-    });
-    
-    const response = await restOperation.response;
-    const result = await response.body.json();
-    return result as T;
+    return await supabasePut<T>(path, data, options);
   } catch (error) {
     console.error(`Error making PUT request to ${path}:`, error);
-    if (error && typeof error === 'object' && 'response' in error) {
-      const apiError = error as { response: { statusCode: number, body: string } };
-      console.error('API error:', apiError.response.statusCode, apiError.response.body);
-    }
     throw error;
   }
 }
 
 /**
- * Utility function to make DELETE requests using AWS Amplify API
+ * Utility function to make DELETE requests (previously using AWS Amplify, now using Supabase)
  * @param path - The API path to request
  * @param options - Additional request options
  * @returns Promise with the API response
@@ -158,36 +76,9 @@ export async function amplifyDelete<T>(
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth token
-    const token = getAuthToken();
-    
-    const restOperation = del({
-      apiName: 'warrity-api',
-      path,
-      options: {
-        headers: {
-          ...(options?.headers || {}),
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        }
-      }
-    });
-    
-    // Handle the response
-    const response = await restOperation.response;
-    try {
-      // Try to parse as JSON
-      const result = await response.body.json();
-      return result as T;
-    } catch (jsonError) {
-      // If not JSON, return empty object
-      return {} as T;
-    }
+    return await supabaseDelete<T>(path, options);
   } catch (error) {
     console.error(`Error making DELETE request to ${path}:`, error);
-    if (error && typeof error === 'object' && 'response' in error) {
-      const apiError = error as { response: { statusCode: number, body: string } };
-      console.error('API error:', apiError.response.statusCode, apiError.response.body);
-    }
     throw error;
   }
 } 
