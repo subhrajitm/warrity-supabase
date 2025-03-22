@@ -1,5 +1,4 @@
-import { post, get, put, del } from 'aws-amplify/api';
-import { fetchAuthSession } from 'aws-amplify/auth';
+import { amplifyGet, amplifyPost, amplifyPut, amplifyDelete } from '@/lib/amplify-api';
 
 export interface Warranty {
   _id: string;
@@ -35,11 +34,13 @@ export interface WarrantyDetailResponse {
   warranty: Warranty;
 }
 
-// Helper to get the auth token for requests
+// Helper to get the auth token - this uses the existing token management
+// instead of Amplify Auth which isn't set up yet
 const getAuthToken = async (): Promise<string | undefined> => {
   try {
-    const { tokens } = await fetchAuthSession();
-    return tokens?.accessToken.toString();
+    // Use localStorage directly for now (or your existing auth mechanism)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
+    return token || undefined;
   } catch (error) {
     console.error('Error getting auth token:', error);
     return undefined;
@@ -49,19 +50,7 @@ const getAuthToken = async (): Promise<string | undefined> => {
 // Get a list of warranties for the current user
 export const getWarranties = async (page = 1, limit = 10): Promise<WarrantyListResponse> => {
   try {
-    const token = await getAuthToken();
-    
-    const response = await get({
-      apiName: 'warrity-api',
-      path: `/warranties?page=${page}&limit=${limit}`,
-      options: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-    
-    return response.body as WarrantyListResponse;
+    return await amplifyGet<WarrantyListResponse>('/warranties', { page, limit });
   } catch (error) {
     console.error('Error getting warranties:', error);
     throw error;
@@ -71,19 +60,7 @@ export const getWarranties = async (page = 1, limit = 10): Promise<WarrantyListR
 // Get a specific warranty by ID
 export const getWarranty = async (id: string): Promise<WarrantyDetailResponse> => {
   try {
-    const token = await getAuthToken();
-    
-    const response = await get({
-      apiName: 'warrity-api',
-      path: `/warranties/${id}`,
-      options: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
-    
-    return response.body as WarrantyDetailResponse;
+    return await amplifyGet<WarrantyDetailResponse>(`/warranties/${id}`);
   } catch (error) {
     console.error(`Error getting warranty with ID ${id}:`, error);
     throw error;
@@ -93,21 +70,7 @@ export const getWarranty = async (id: string): Promise<WarrantyDetailResponse> =
 // Create a new warranty
 export const createWarranty = async (warrantyData: WarrantyInput): Promise<WarrantyDetailResponse> => {
   try {
-    const token = await getAuthToken();
-    
-    const response = await post({
-      apiName: 'warrity-api',
-      path: '/warranties',
-      options: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: warrantyData
-      }
-    });
-    
-    return response.body as WarrantyDetailResponse;
+    return await amplifyPost<WarrantyDetailResponse>('/warranties', warrantyData);
   } catch (error) {
     console.error('Error creating warranty:', error);
     throw error;
@@ -117,21 +80,7 @@ export const createWarranty = async (warrantyData: WarrantyInput): Promise<Warra
 // Update an existing warranty
 export const updateWarranty = async (id: string, warrantyData: Partial<WarrantyInput>): Promise<WarrantyDetailResponse> => {
   try {
-    const token = await getAuthToken();
-    
-    const response = await put({
-      apiName: 'warrity-api',
-      path: `/warranties/${id}`,
-      options: {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: warrantyData
-      }
-    });
-    
-    return response.body as WarrantyDetailResponse;
+    return await amplifyPut<WarrantyDetailResponse>(`/warranties/${id}`, warrantyData);
   } catch (error) {
     console.error(`Error updating warranty with ID ${id}:`, error);
     throw error;
@@ -141,17 +90,7 @@ export const updateWarranty = async (id: string, warrantyData: Partial<WarrantyI
 // Delete a warranty
 export const deleteWarranty = async (id: string): Promise<void> => {
   try {
-    const token = await getAuthToken();
-    
-    await del({
-      apiName: 'warrity-api',
-      path: `/warranties/${id}`,
-      options: {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    });
+    await amplifyDelete<void>(`/warranties/${id}`);
   } catch (error) {
     console.error(`Error deleting warranty with ID ${id}:`, error);
     throw error;

@@ -1,5 +1,17 @@
-import { fetchAuthSession } from 'aws-amplify/auth';
 import { get, post, put, del } from 'aws-amplify/api';
+
+/**
+ * Utility function to get the auth token from localStorage
+ * (temporary solution until AWS Amplify Auth is set up)
+ */
+const getAuthToken = (): string | undefined => {
+  try {
+    return typeof window !== 'undefined' ? localStorage.getItem('authToken') || undefined : undefined;
+  } catch (error) {
+    console.error('Error getting auth token:', error);
+    return undefined;
+  }
+};
 
 /**
  * Utility function to make GET requests using AWS Amplify API
@@ -15,30 +27,38 @@ export async function amplifyGet<T>(
 ): Promise<T> {
   try {
     const queryParams = params ? 
-      `?${Object.entries(params)
+      Object.entries(params)
         .filter(([, value]) => value !== undefined)
-        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-        .join('&')}` 
-      : '';
+        .reduce((acc, [key, value]) => {
+          acc[key] = String(value);
+          return acc;
+        }, {} as Record<string, string>) 
+      : undefined;
     
-    // Get auth session for authenticated requests if needed
-    const { accessToken } = (await fetchAuthSession()).tokens ?? {};
+    // Get auth token
+    const token = getAuthToken();
     
-    const result = await get({
+    const restOperation = get({
       apiName: 'warrity-api',
-      path: `${path}${queryParams}`,
+      path,
       options: {
-        ...options,
         headers: {
           ...(options?.headers || {}),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
-        }
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        queryParams
       }
     });
     
-    return result.body as T;
+    const response = await restOperation.response;
+    const result = await response.body.json();
+    return result as T;
   } catch (error) {
     console.error(`Error making GET request to ${path}:`, error);
+    if (error && typeof error === 'object' && 'response' in error) {
+      const apiError = error as { response: { statusCode: number, body: string } };
+      console.error('API error:', apiError.response.statusCode, apiError.response.body);
+    }
     throw error;
   }
 }
@@ -50,31 +70,37 @@ export async function amplifyGet<T>(
  * @param options - Additional request options
  * @returns Promise with the API response
  */
-export async function amplifyPost<T, D = any>(
+export async function amplifyPost<T>(
   path: string,
-  data?: D,
+  data?: Record<string, any>,
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth session for authenticated requests if needed
-    const { accessToken } = (await fetchAuthSession()).tokens ?? {};
+    // Get auth token
+    const token = getAuthToken();
     
-    const result = await post({
+    const restOperation = post({
       apiName: 'warrity-api',
       path,
       options: {
-        ...options,
         body: data,
         headers: {
           ...(options?.headers || {}),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       }
     });
     
-    return result.body as T;
+    const response = await restOperation.response;
+    const result = await response.body.json();
+    return result as T;
   } catch (error) {
     console.error(`Error making POST request to ${path}:`, error);
+    if (error && typeof error === 'object' && 'response' in error) {
+      const apiError = error as { response: { statusCode: number, body: string } };
+      console.error('API error:', apiError.response.statusCode, apiError.response.body);
+    }
     throw error;
   }
 }
@@ -86,31 +112,37 @@ export async function amplifyPost<T, D = any>(
  * @param options - Additional request options
  * @returns Promise with the API response
  */
-export async function amplifyPut<T, D = any>(
+export async function amplifyPut<T>(
   path: string,
-  data?: D,
+  data?: Record<string, any>,
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth session for authenticated requests if needed
-    const { accessToken } = (await fetchAuthSession()).tokens ?? {};
+    // Get auth token
+    const token = getAuthToken();
     
-    const result = await put({
+    const restOperation = put({
       apiName: 'warrity-api',
       path,
       options: {
-        ...options,
         body: data,
         headers: {
           ...(options?.headers || {}),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       }
     });
     
-    return result.body as T;
+    const response = await restOperation.response;
+    const result = await response.body.json();
+    return result as T;
   } catch (error) {
     console.error(`Error making PUT request to ${path}:`, error);
+    if (error && typeof error === 'object' && 'response' in error) {
+      const apiError = error as { response: { statusCode: number, body: string } };
+      console.error('API error:', apiError.response.statusCode, apiError.response.body);
+    }
     throw error;
   }
 }
@@ -126,24 +158,36 @@ export async function amplifyDelete<T>(
   options?: Record<string, any>
 ): Promise<T> {
   try {
-    // Get auth session for authenticated requests if needed
-    const { accessToken } = (await fetchAuthSession()).tokens ?? {};
+    // Get auth token
+    const token = getAuthToken();
     
-    const result = await del({
+    const restOperation = del({
       apiName: 'warrity-api',
       path,
       options: {
-        ...options,
         headers: {
           ...(options?.headers || {}),
-          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         }
       }
     });
     
-    return result.body as T;
+    // Handle the response
+    const response = await restOperation.response;
+    try {
+      // Try to parse as JSON
+      const result = await response.body.json();
+      return result as T;
+    } catch (jsonError) {
+      // If not JSON, return empty object
+      return {} as T;
+    }
   } catch (error) {
     console.error(`Error making DELETE request to ${path}:`, error);
+    if (error && typeof error === 'object' && 'response' in error) {
+      const apiError = error as { response: { statusCode: number, body: string } };
+      console.error('API error:', apiError.response.statusCode, apiError.response.body);
+    }
     throw error;
   }
 } 
