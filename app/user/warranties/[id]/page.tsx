@@ -21,6 +21,7 @@ import {
   Phone
 } from "lucide-react"
 import WarrantySidebar from "../components/sidebar"
+import { WarrantyEvents } from "@/components/warranty-events"
 import { useAuth } from "@/lib/auth-context"
 import { Warranty } from "@/types/warranty"
 import { warrantyApi } from "@/lib/api"
@@ -296,7 +297,7 @@ export default function WarrantyDetailPage() {
             </Card>
           </div>
           
-          {warranty.documents && warranty.documents.length > 0 && (
+          {warranty?.documents && warranty?.documents.length > 0 && (
             <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100 mb-6">
               <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                 <CardTitle className="text-xl font-bold text-amber-900">
@@ -304,7 +305,7 @@ export default function WarrantyDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-6 space-y-4">
-                {warranty.documents.map((doc, index) => (
+                {warranty?.documents.map((doc, index) => (
                   <div key={index} className="flex items-center justify-between p-3 border-2 border-amber-800 rounded-lg bg-amber-50">
                     <div className="flex items-center">
                       <FileText className="h-6 w-6 text-amber-800 mr-3" />
@@ -321,7 +322,7 @@ export default function WarrantyDetailPage() {
             </Card>
           )}
           
-          {warranty.coverageDetails && (
+          {warranty?.coverageDetails && (
             <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100 mb-6">
               <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                 <CardTitle className="text-xl font-bold text-amber-900">
@@ -330,14 +331,14 @@ export default function WarrantyDetailPage() {
               </CardHeader>
               <CardContent className="p-6">
                 <p className="text-amber-900 whitespace-pre-line">
-                  {warranty.coverageDetails}
+                  {warranty?.coverageDetails}
                 </p>
               </CardContent>
             </Card>
           )}
           
-          {warranty.notes && (
-            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+          {warranty?.notes && (
+            <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100 mb-6">
               <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
                 <CardTitle className="text-xl font-bold text-amber-900">
                   Notes
@@ -345,11 +346,26 @@ export default function WarrantyDetailPage() {
               </CardHeader>
               <CardContent className="p-6">
                 <p className="text-amber-900 whitespace-pre-line">
-                  {warranty.notes || "No notes added."}
+                  {warranty?.notes || "No notes added."}
                 </p>
               </CardContent>
             </Card>
           )}
+          
+          {/* Warranty Events */}
+          <Card className="border-4 border-amber-800 shadow-[8px_8px_0px_0px_rgba(120,53,15,0.5)] bg-amber-100">
+            <CardHeader className="border-b-4 border-amber-800 bg-amber-200 px-6 py-4">
+              <CardTitle className="text-xl font-bold text-amber-900">
+                Event History
+              </CardTitle>
+              <CardDescription className="text-amber-700">
+                Track all events related to this warranty including claims, repairs, and updates.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <WarrantyEvents warrantyId={params.id} />
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

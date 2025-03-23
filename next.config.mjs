@@ -21,13 +21,23 @@ const nextConfig = {
         hostname: 'uploads.warrity.com',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'avhubonvfquxgmontvaw.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
     ],
   },
   async rewrites() {
+    // Use conditional API URL based on environment
+    const apiUrl = process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:3000'
+      : process.env.NEXT_PUBLIC_API_URL;
+      
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/:path*`,
+        destination: `${apiUrl}/:path*`,
       },
     ]
   },

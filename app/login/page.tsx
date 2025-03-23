@@ -168,6 +168,26 @@ export default function LoginPage() {
                 </div>
               </div>
               
+              <div>
+                <Button 
+                  variant="link" 
+                  className="px-0 text-amber-800 hover:text-amber-900"
+                  asChild
+                >
+                  <Link href="/forgot-password">Forgot your password?</Link>
+                </Button>
+              </div>
+
+              <div>
+                <Button 
+                  variant="link" 
+                  className="px-0 text-amber-800 hover:text-amber-900"
+                  asChild
+                >
+                  <Link href="/auth/verify">Verify Email / Resend Verification</Link>
+                </Button>
+              </div>
+
               <Button 
                 type="submit"
                 className="w-full bg-amber-800 hover:bg-amber-900 text-amber-100 border-2 border-amber-900"

@@ -8,16 +8,40 @@ This guide covers the process of migrating the Warrity application from AWS Ampl
 2. Supabase API URL and anonymous key
 3. Node.js and pnpm installed
 
-## Step 1: Set up Supabase environment variables
+## Local Development Setup
+
+For local development, we've provided a simplified setup process:
+
+```bash
+# Install dependencies
+pnpm install
+
+# Set up local environment
+pnpm setup-local
+
+# Run the application
+pnpm dev
+```
+
+The `setup-local` script:
+- Creates/updates the `.env.local` file with needed environment variables
+- Sets up API endpoints to work with localhost
+- Tests the Supabase connection
+- Makes all scripts executable
+
+## Step-by-Step Migration (Manual Process)
+
+### Step 1: Set up Supabase environment variables
 
 Update your `.env.local` file with the Supabase URL and anonymous key:
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://your-project-url.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+NEXT_PUBLIC_SUPABASE_URL=https://avhubonvfquxgmontvaw.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2aHVib252ZnF1eGdtb250dmF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI2NzMzMTYsImV4cCI6MjA1ODI0OTMxNn0.bvPpp34JSBPhn8sakA2qBgYTyw5OZ8D_CFDxbIKfXDM
+NEXT_PUBLIC_API_URL=http://localhost:3000
 ```
 
-## Step 2: Install the Supabase client
+### Step 2: Install the Supabase client
 
 Run the following command to install the Supabase JavaScript client:
 
@@ -25,7 +49,7 @@ Run the following command to install the Supabase JavaScript client:
 pnpm add @supabase/supabase-js
 ```
 
-## Step 3: Run the migration script
+### Step 3: Run the migration script
 
 This will create the necessary tables, policies, and functions in your Supabase project:
 
@@ -33,7 +57,7 @@ This will create the necessary tables, policies, and functions in your Supabase 
 pnpm migrate-to-supabase
 ```
 
-## Step 4: Test the migration
+### Step 4: Test the migration
 
 Run the application to test that everything is working correctly:
 
@@ -60,9 +84,21 @@ pnpm dev
    - Set up Row Level Security (RLS) policies for data protection
    - Created database triggers for events like user creation
 
+4. **User Profiles**:
+   - Created a profiles table in Supabase with the following schema:
+     - `id` (uuid, primary key): UUID matching the auth.users id
+     - `email` (text, required): User's email address
+     - `name` (text, optional): User's display name
+     - `role` (text, required): User's role (user, admin, etc.)
+     - `profile_picture` (text, optional): URL to user's profile picture
+     - `bio` (text, optional): User's biography
+     - `social_links` (jsonb, optional): User's social media links
+     - `created_at` (timestamp with timezone): Creation timestamp
+     - `updated_at` (timestamp with timezone): Last update timestamp
+
 ### Tables Created
 
-- `users`: User profiles linked to Supabase Auth
+- `profiles`: User profiles linked to Supabase Auth
 - `products`: Product catalog
 - `warranties`: Warranty records
 - `warranty_documents`: Files attached to warranties
@@ -73,6 +109,15 @@ pnpm dev
 
 - `warranty_documents`: Private bucket for warranty attachments
 - `profile_pictures`: Public bucket for user avatars
+
+## Local vs Production Setup
+
+The application is now configured to detect the environment and adjust accordingly:
+
+- **Local Development**: API calls will be directed to `http://localhost:3000`
+- **Production**: API calls will use the value from `NEXT_PUBLIC_API_URL`
+
+Authentication works seamlessly in both environments, using Supabase's session management.
 
 ## Troubleshooting
 
@@ -91,6 +136,14 @@ If API requests are failing:
 1. Check the browser console for error messages
 2. Verify that the database tables exist in Supabase
 3. Ensure RLS policies are set up correctly
+
+### Profile picture uploads
+
+If profile picture uploads are failing:
+
+1. Make sure the `profile_pictures` bucket exists in Supabase storage
+2. Check that you have the proper RLS policies for the storage bucket
+3. The application will fall back to generated avatars if the bucket doesn't exist
 
 ### Data migration
 

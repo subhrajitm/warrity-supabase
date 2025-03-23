@@ -3,13 +3,29 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { authApi, userApi, handleApiError } from './api';
+import { 
+  signInWithEmail, 
+  signUpWithEmail, 
+  signOut, 
+  getCurrentUser, 
+  updatePassword as updateUserPassword,
+  onAuthStateChange,
+} from './supabase-auth';
+import { 
+  getCurrentProfile, 
+  updateProfile as updateUserProfile, 
+  getProfileById, 
+  createProfile,
+  type Profile 
+} from './services/profile-service';
+import supabase from './supabase-config';
 
 interface User {
   id: string;
   name: string;
   email: string;
   role: string;
+  isVerified?: boolean;
   [key: string]: any;
 }
 
@@ -34,6 +50,7 @@ interface ProfileUpdateData {
 
 interface AuthContextType {
   user: User | null;
+  profile: Profile | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string, shouldRedirect: boolean) => Promise<boolean>;
@@ -113,93 +130,253 @@ function validateProfileData(data: ProfileUpdateData): { isValid: boolean; error
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  // Fetch the current user's profile
+  const fetchUserProfile = async () => {
+    try {
+      // First, get the current user from Supabase Auth
+      const currentUser = await getCurrentUser();
+      
+      // If no user, clear the state
+      if (!currentUser) {
+        setIsLoading(false);
+        setIsAuthenticated(false);
+        setError(null);
+        setUser(null);
+        return;
+      }
+      
+      // Check if email is verified
+      const isEmailVerified = !!currentUser.email_confirmed_at;
+      
+      // If email is not verified, set verification status
+      if (!isEmailVerified) {
+        const userWithVerification: User = {
+          ...currentUser,
+          id: currentUser.id,
+          name: currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'User',
+          email: currentUser.email || '',
+          role: 'user',
+          isVerified: false
+        };
+        
+        setUser(userWithVerification);
+        setIsLoading(false);
+        setIsAuthenticated(true);
+        setError("Please verify your email address to access all features.");
+        return;
+      }
+      
+      // Get user profile from profile service
+      const profile = await getCurrentProfile();
+      
+      // If profile exists, merge auth user and profile data
+      if (profile) {
+        const userWithProfile: User = {
+          ...currentUser,
+          ...profile,
+          id: currentUser.id,
+          name: profile.name || currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'User',
+          email: profile.email || currentUser.email || '',
+          role: profile.role || 'user',
+          isVerified: true
+        };
+        
+        setUser(userWithProfile);
+        setProfile(profile);
+        setIsLoading(false);
+        setIsAuthenticated(true);
+        setError(null);
+      } else {
+        // No profile found, just use the auth user data
+        const userWithoutProfile: User = {
+          ...currentUser,
+          id: currentUser.id,
+          name: currentUser.user_metadata?.name || currentUser.email?.split('@')[0] || 'User',
+          email: currentUser.email || '',
+          role: 'user',
+          isVerified: true
+        };
+        
+        setUser(userWithoutProfile);
+        setIsLoading(false);
+        setIsAuthenticated(true);
+        setError(null);
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      setUser(null);
+      setIsLoading(false);
+      setIsAuthenticated(false);
+      setError('Failed to load user profile');
+    }
+  };
 
   // Check if user is already logged in
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const token = localStorage.getItem('authToken');
-        if (!token) {
+        setIsLoading(true);
+        
+        // Don't attempt to get auth user on the server
+        if (typeof window === 'undefined') {
           setIsLoading(false);
           return;
         }
-
-        const response = await authApi.getCurrentUser();
-        if (response.error) {
-          // Token might be expired, try to refresh
-          const refreshResponse = await authApi.refreshToken();
-          if (refreshResponse.error) {
-            // Refresh failed, clear token
-            localStorage.removeItem('authToken');
-            setUser(null);
-            setIsLoading(false);
-            return;
+        
+        // Check localStorage first for backwards compatibility
+        const hasLocalToken = !!localStorage.getItem('authToken');
+        
+        // Get user from Supabase auth
+        let authUser;
+        try {
+          authUser = await getCurrentUser();
+        } catch (authError) {
+          console.warn('Auth check error:', authError);
+          // Continue to avoid breaking the app
+        }
+        
+        if (authUser) {
+          // Get profile from Supabase profiles table
+          const userProfile = await getCurrentProfile();
+          
+          // If user exists but profile doesn't, create it
+          if (authUser && !userProfile && authUser.email) {
+            let newProfile;
+            try {
+              newProfile = await createProfile({
+                id: authUser.id,
+                email: authUser.email,
+                name: authUser.user_metadata?.name || authUser.email.split('@')[0],
+                role: 'user'
+              });
+            } catch (profileError) {
+              console.error('Error creating profile:', profileError);
+            }
+            
+            if (newProfile) {
+              setProfile(newProfile);
+            }
+          } else {
+            setProfile(userProfile);
           }
           
-          // Save new token and try again
-          if (refreshResponse.data?.token) {
-            localStorage.setItem('authToken', refreshResponse.data.token);
-            const retryResponse = await authApi.getCurrentUser();
-            if (retryResponse.error) {
+          // Map user data to our User interface
+          setUser({
+            id: authUser.id,
+            email: authUser.email || '',
+            name: userProfile?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+            role: userProfile?.role || 'user',
+            // Add additional user fields if needed
+          });
+        } else if (hasLocalToken) {
+          // Legacy token exists but no Supabase session
+          // Attempt to refresh the session
+          try {
+            const { data } = await supabase.auth.getSession();
+            if (data.session) {
+              // Session refreshed, try again
+              fetchUserProfile();
+            } else {
+              // No valid session, clear token
               localStorage.removeItem('authToken');
               setUser(null);
-            } else if (retryResponse.data?.user) {
-              setUser(retryResponse.data.user);
+              setProfile(null);
             }
+          } catch (refreshError) {
+            console.error('Session refresh failed:', refreshError);
+            localStorage.removeItem('authToken');
+            setUser(null);
+            setProfile(null);
           }
-        } else if (response.data?.user) {
-          setUser(response.data.user);
+        } else {
+          setUser(null);
+          setProfile(null);
         }
       } catch (error) {
         console.error('Auth check failed:', error);
+        setUser(null);
+        setProfile(null);
       } finally {
         setIsLoading(false);
       }
     };
 
     checkAuth();
+    
+    // Set up auth state change listener
+    let authListener: any = null;
+    try {
+      const listener = onAuthStateChange(async (event, session) => {
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          // Refresh the user data when auth state changes
+          fetchUserProfile();
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setProfile(null);
+        }
+      });
+      
+      authListener = listener;
+    } catch (error) {
+      console.error('Auth listener setup failed:', error);
+    }
+    
+    // Clean up the subscription
+    return () => {
+      if (authListener?.subscription?.unsubscribe) {
+        authListener.subscription.unsubscribe();
+      }
+    };
   }, []);
 
   const login = async (email: string, password: string, shouldRedirect: boolean = true): Promise<boolean> => {
     setIsLoading(true);
     try {
-      console.log('Attempting login with:', { email });
-      const response = await authApi.login({ email, password });
+      const { user: authUser, session } = await signInWithEmail(email, password);
       
-      console.log('Login response:', response);
-      
-      if (response.error) {
-        console.error('Login error:', response.error);
-        toast.error(response.error);
+      if (!authUser || !session) {
+        toast.error('Login failed');
         return false;
       }
       
-      if (!response.data) {
-        console.error('No data in login response');
-        toast.error('Invalid login response');
-        return false;
+      // Get user profile from Supabase profiles table
+      const userProfile = await getProfileById(authUser.id);
+      
+      // Create profile if it doesn't exist
+      if (!userProfile && authUser.email) {
+        const newProfile = await createProfile({
+          id: authUser.id,
+          email: authUser.email,
+          name: authUser.user_metadata?.name || email.split('@')[0],
+          role: 'user'
+        });
+        
+        setProfile(newProfile);
+      } else {
+        setProfile(userProfile);
       }
       
-      const { token, user: userData } = response.data;
+      // Map user data to our User interface
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        name: userProfile?.name || authUser.user_metadata?.name || email.split('@')[0] || 'User',
+        role: userProfile?.role || 'user',
+      });
       
-      if (!token || !userData) {
-        console.error('Missing token or user data in response');
-        toast.error('Invalid login response');
-        return false;
-      }
-      
-      // Save token
-      localStorage.setItem('authToken', token);
-      
-      // Set user data
-      setUser(userData);
       toast.success('Login successful');
       
       // Only redirect if shouldRedirect is true
       if (shouldRedirect) {
-        const redirectPath = userData.role === 'admin' ? '/admin' : '/user';
+        const redirectPath = (userProfile?.role === 'admin' || authUser.app_metadata?.role === 'admin') 
+          ? '/admin' 
+          : '/user';
         router.push(redirectPath);
       }
       
@@ -216,9 +393,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async (): Promise<void> => {
     setIsLoading(true);
     try {
+      await signOut();
+      
       // Clear local state
-      localStorage.removeItem('authToken');
       setUser(null);
+      setProfile(null);
       
       // Show success message
       toast.success('Logged out successfully');
@@ -236,24 +415,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = async (userData: any): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const response = await authApi.register(userData);
+      // Use Supabase Auth to create the user
+      const { user: authUser, session } = await signUpWithEmail(
+        userData.email, 
+        userData.password,
+        {
+          name: userData.name,
+          phone: userData.phone
+        }
+      );
       
-      if (response.error) {
-        handleApiError(response.error);
+      if (!authUser) {
+        toast.error('Registration failed');
         return false;
       }
       
-      if (response.data?.token) {
-        localStorage.setItem('authToken', response.data.token);
-        setUser(response.data.user);
-        toast.success('Registration successful');
-        return true;
-      }
+      // Note: Profile creation is handled in signUpWithEmail
+      // Get the created profile
+      const userProfile = await getProfileById(authUser.id);
+      setProfile(userProfile);
       
-      return false;
+      // Map user data to our User interface
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        name: userProfile?.name || userData.name || authUser.email?.split('@')[0] || 'User',
+        role: userProfile?.role || 'user',
+      });
+      
+      toast.success('Registration successful');
+      
+      // Redirect to confirmation page
+      router.push('/confirm-email');
+      
+      return true;
     } catch (error) {
       console.error('Registration failed:', error);
-      toast.error('Registration failed');
+      toast.error('Registration failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
       return false;
     } finally {
       setIsLoading(false);
@@ -263,109 +461,102 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = async (profileData: ProfileUpdateData): Promise<boolean> => {
     try {
       // Validate profile data
-      if (!validateProfileData(profileData)) {
-        toast.error("Invalid profile data");
+      const validation = validateProfileData(profileData);
+      if (!validation.isValid) {
+        toast.error(validation.error || 'Invalid profile data');
         return false;
       }
-
-      // Transform preferences data to match API requirements
-      const transformedData = {
-        ...profileData,
-        preferences: {
-          emailNotifications: profileData.preferences?.emailNotifications ?? true,
-          reminderDays: profileData.preferences?.reminderDays ?? 30,
-          notifications: Boolean(profileData.preferences?.notifications) || undefined
-        }
-      };
-
-      // Transform social links to ensure they are valid URLs or undefined
-      if (transformedData.socialLinks) {
-        const transformedSocialLinks: Record<string, string | undefined> = {};
-        
-        for (const [platform, value] of Object.entries(transformedData.socialLinks)) {
-          if (!value) {
-            // If the value is empty, set it to undefined
-            transformedSocialLinks[platform] = undefined;
-          } else if (!value.startsWith('http')) {
-            // If it's not a full URL, construct one based on the platform
-            const baseUrls: Record<string, string> = {
-              twitter: 'https://twitter.com/',
-              linkedin: 'https://linkedin.com/in/',
-              github: 'https://github.com/',
-              instagram: 'https://instagram.com/'
-            };
-            transformedSocialLinks[platform] = `${baseUrls[platform]}${value}`;
-          } else {
-            // If it's already a full URL, use it as is
-            transformedSocialLinks[platform] = value;
-          }
-        }
-        
-        transformedData.socialLinks = transformedSocialLinks;
-      }
-
-      console.log('Sending profile update:', transformedData);
-      const response = await userApi.updateProfile(transformedData);
-      console.log('Profile update response:', response);
-
-      if (response.error) {
-        // Handle validation errors
-        if (response.error.includes('validation failed')) {
-          const errorMessages = response.error.split(', ');
-          toast.error(errorMessages.join('\n'));
-          return false;
-        }
-        toast.error(response.error);
+      
+      if (!user) {
+        toast.error('You must be logged in to update your profile');
         return false;
       }
-
-      const updatedUser = response.data;
-      if (updatedUser) {
-        // Update local user state with the new data
-        setUser(prevUser => {
-          if (!prevUser) return updatedUser;
-          
-          // Create a new user object with all the updated fields
-          const newUser = {
-            ...prevUser,
-            name: updatedUser.name || prevUser.name,
-            phone: updatedUser.phone || prevUser.phone,
-            bio: updatedUser.bio || prevUser.bio,
-            socialLinks: updatedUser.socialLinks || prevUser.socialLinks,
-            preferences: {
-              ...prevUser.preferences,
-              ...updatedUser.preferences
-            }
-          };
-
-          // Force a re-render by creating a new object
-          return { ...newUser };
-        });
-
-        // Force a refresh of the user data
-        await refreshUser();
-        
-        toast.success("Profile updated successfully");
-        return true;
+      
+      // Format social links for Supabase
+      const social_links = profileData.socialLinks ? {
+        twitter: profileData.socialLinks.twitter || '',
+        linkedin: profileData.socialLinks.linkedin || '',
+        github: profileData.socialLinks.github || '',
+        instagram: profileData.socialLinks.instagram || '',
+      } : undefined;
+      
+      // Update profile in Supabase profiles table
+      const updatedProfile = await updateUserProfile({
+        id: user.id,
+        name: profileData.name,
+        bio: profileData.bio,
+        social_links,
+        updated_at: new Date().toISOString()
+      });
+      
+      if (!updatedProfile) {
+        toast.error('Failed to update profile');
+        return false;
       }
-
-      toast.error("Failed to update profile");
-      return false;
+      
+      // Also update user metadata in Supabase Auth
+      await supabase.auth.updateUser({
+        data: {
+          name: profileData.name,
+          bio: profileData.bio,
+          socialLinks: profileData.socialLinks,
+          preferences: profileData.preferences,
+        }
+      });
+      
+      // Update local state
+      setProfile(updatedProfile);
+      setUser({
+        ...user,
+        name: updatedProfile.name || user.name,
+        bio: updatedProfile.bio,
+      });
+      
+      toast.success('Profile updated successfully');
+      return true;
     } catch (error) {
-      console.error("Profile update error:", error);
-      toast.error("An unexpected error occurred");
+      console.error('Profile update failed:', error);
+      toast.error('Failed to update profile: ' + (error instanceof Error ? error.message : 'Unknown error'));
       return false;
     }
   };
 
   const refreshUser = async (): Promise<void> => {
     try {
-      const response = await authApi.getCurrentUser();
-      if (response.data?.user) {
-        setUser(response.data.user);
+      // Get user from Supabase auth
+      const authUser = await getCurrentUser();
+      
+      if (authUser) {
+        // Get profile from Supabase profiles table
+        const userProfile = await getCurrentProfile();
+        
+        // If profile doesn't exist, create it
+        if (!userProfile && authUser.email) {
+          const newProfile = await createProfile({
+            id: authUser.id,
+            email: authUser.email,
+            name: authUser.user_metadata?.name || authUser.email.split('@')[0],
+            role: 'user'
+          });
+          
+          setProfile(newProfile);
+        } else {
+          setProfile(userProfile);
+        }
+        
+        // Map user data to our User interface
+        setUser({
+          id: authUser.id,
+          email: authUser.email || '',
+          name: userProfile?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+          role: userProfile?.role || 'user',
+        });
+      } else {
+        setUser(null);
+        setProfile(null);
       }
     } catch (error) {
-      console.error('User refresh failed:', error);
+      console.error('Failed to refresh user:', error);
     }
   };
 
@@ -373,8 +564,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        profile,
         isLoading,
-        isAuthenticated: !!user,
+        isAuthenticated,
         login,
         logout,
         register,

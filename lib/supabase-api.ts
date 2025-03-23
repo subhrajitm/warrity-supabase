@@ -5,14 +5,26 @@ import supabase from './supabase-config';
  */
 const getAuthToken = async (): Promise<string | undefined> => {
   try {
-    // Try to get token from Supabase session first
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.access_token) {
-      return session.access_token;
+    // Check if we're in a browser environment
+    if (typeof window === 'undefined') {
+      return undefined; // Server-side, no token available
+    }
+
+    // Try to get token from localStorage first for backward compatibility
+    const localToken = localStorage.getItem('authToken');
+    if (localToken) {
+      return localToken;
     }
     
-    // Fallback to localStorage for backward compatibility
-    return typeof window !== 'undefined' ? localStorage.getItem('authToken') || undefined : undefined;
+    // Try to get token from Supabase session
+    try {
+      const { data } = await supabase.auth.getSession();
+      return data.session?.access_token;
+    } catch (sessionError) {
+      console.warn('Session retrieval error:', sessionError);
+      // Continue execution even if session retrieval fails
+      return undefined;
+    }
   } catch (error) {
     console.error('Error getting auth token:', error);
     return undefined;
@@ -78,8 +90,12 @@ export async function supabaseGet<T>(
         if (error) throw error;
         return data as T;
       } else {
-        // External API request
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${path}${
+        // External API request - use localhost API URL if in development
+        const apiUrl = process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:3000' 
+          : process.env.NEXT_PUBLIC_API_URL;
+          
+        const response = await fetch(`${apiUrl}/${path}${
           Object.keys(queryParams).length > 0 
             ? `?${new URLSearchParams(queryParams as Record<string, string>).toString()}` 
             : ''
@@ -151,8 +167,12 @@ export async function supabasePost<T>(
         if (error) throw error;
         return result as T;
       } else {
-        // External API request
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${path}`, {
+        // External API request - use localhost API URL if in development
+        const apiUrl = process.env.NODE_ENV === 'development' 
+          ? 'http://localhost:3000' 
+          : process.env.NEXT_PUBLIC_API_URL;
+          
+        const response = await fetch(`${apiUrl}/${path}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(data),
@@ -219,8 +239,12 @@ export async function supabasePut<T>(
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       };
       
-      // External API request (Supabase functions don't support PUT)
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${path}`, {
+      // External API request - use localhost API URL if in development
+      const apiUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:3000' 
+        : process.env.NEXT_PUBLIC_API_URL;
+        
+      const response = await fetch(`${apiUrl}/${path}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(data),
@@ -284,8 +308,12 @@ export async function supabaseDelete<T>(
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       };
       
-      // External API request (Supabase functions don't support DELETE)
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${path}`, {
+      // External API request - use localhost API URL if in development
+      const apiUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:3000' 
+        : process.env.NEXT_PUBLIC_API_URL;
+        
+      const response = await fetch(`${apiUrl}/${path}`, {
         method: 'DELETE',
         headers,
         ...options
