@@ -157,8 +157,12 @@ export async function getCurrentUser() {
  */
 export async function resetPassword(email: string) {
   try {
+    const appUrl = typeof window !== 'undefined'
+      ? process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com';
+      
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
+      redirectTo: `${appUrl}/reset-password`,
     });
     
     if (error) throw error;
@@ -261,12 +265,16 @@ export function onAuthStateChange(callback: (event: string, session: any) => voi
  */
 export async function sendVerificationEmail(email: string) {
   try {
+    const appUrl = typeof window !== 'undefined'
+      ? process.env.NEXT_PUBLIC_APP_URL || window.location.origin
+      : process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com';
+      
     // Send verification email with redirect URL
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${appUrl}/auth/callback`,
       },
     });
     

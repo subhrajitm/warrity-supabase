@@ -19,7 +19,10 @@ export async function GET(request: NextRequest) {
     await supabase.auth.exchangeCodeForSession(code)
   }
 
+  // Use the environment variable with a fallback
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com'
+  
   // URL to redirect to after the callback
   // For email verification, redirect to a success page
-  return NextResponse.redirect(`${requestUrl.origin}/auth/verification-success`)
+  return NextResponse.redirect(`${appUrl}/auth/verification-success`)
 } 

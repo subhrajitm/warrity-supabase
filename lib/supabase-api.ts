@@ -31,6 +31,16 @@ const getAuthToken = async (): Promise<string | undefined> => {
   }
 };
 
+// Base URL for API requests
+const API_BASE_URL = typeof window !== 'undefined'
+  ? process.env.NEXT_PUBLIC_API_URL || 'https://api.warrity.com'
+  : process.env.NEXT_PUBLIC_API_URL || 'https://api.warrity.com';
+
+// If the API_URL is not set, use the APP_URL or default to production URL
+export const APP_URL = typeof window !== 'undefined'
+  ? process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com'
+  : process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com';
+
 /**
  * Utility function to make GET requests using Supabase
  * @param path - The API path to request
@@ -90,12 +100,8 @@ export async function supabaseGet<T>(
         if (error) throw error;
         return data as T;
       } else {
-        // External API request - use localhost API URL if in development
-        const apiUrl = process.env.NODE_ENV === 'development' 
-          ? 'http://localhost:3000' 
-          : process.env.NEXT_PUBLIC_API_URL;
-          
-        const response = await fetch(`${apiUrl}/${path}${
+        // External API request - use the configured API URL
+        const response = await fetch(`${API_BASE_URL}/${path}${
           Object.keys(queryParams).length > 0 
             ? `?${new URLSearchParams(queryParams as Record<string, string>).toString()}` 
             : ''
@@ -167,12 +173,8 @@ export async function supabasePost<T>(
         if (error) throw error;
         return result as T;
       } else {
-        // External API request - use localhost API URL if in development
-        const apiUrl = process.env.NODE_ENV === 'development' 
-          ? 'http://localhost:3000' 
-          : process.env.NEXT_PUBLIC_API_URL;
-          
-        const response = await fetch(`${apiUrl}/${path}`, {
+        // External API request - use the configured API URL
+        const response = await fetch(`${API_BASE_URL}/${path}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(data),
@@ -239,12 +241,8 @@ export async function supabasePut<T>(
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       };
       
-      // External API request - use localhost API URL if in development
-      const apiUrl = process.env.NODE_ENV === 'development' 
-        ? 'http://localhost:3000' 
-        : process.env.NEXT_PUBLIC_API_URL;
-        
-      const response = await fetch(`${apiUrl}/${path}`, {
+      // External API request - use the configured API URL
+      const response = await fetch(`${API_BASE_URL}/${path}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(data),
@@ -308,12 +306,8 @@ export async function supabaseDelete<T>(
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       };
       
-      // External API request - use localhost API URL if in development
-      const apiUrl = process.env.NODE_ENV === 'development' 
-        ? 'http://localhost:3000' 
-        : process.env.NEXT_PUBLIC_API_URL;
-        
-      const response = await fetch(`${apiUrl}/${path}`, {
+      // External API request - use the configured API URL
+      const response = await fetch(`${API_BASE_URL}/${path}`, {
         method: 'DELETE',
         headers,
         ...options

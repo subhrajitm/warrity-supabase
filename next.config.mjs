@@ -32,7 +32,7 @@ const nextConfig = {
     // Use conditional API URL based on environment
     const apiUrl = process.env.NODE_ENV === 'development' 
       ? 'http://localhost:3000'
-      : process.env.NEXT_PUBLIC_API_URL;
+      : process.env.NEXT_PUBLIC_API_URL || 'https://api.warrity.com';
       
     return [
       {
