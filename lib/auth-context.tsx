@@ -243,7 +243,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (authUser) {
           // Get profile from Supabase profiles table
-          const userProfile = await getCurrentProfile();
+          let userProfile;
+          try {
+            userProfile = await getCurrentProfile();
+          } catch (profileError) {
+            console.error('Error getting profile during auth check:', profileError);
+            // Continue without the profile for now
+          }
           
           // If user exists but profile doesn't, create it
           if (authUser && !userProfile && authUser.email) {
@@ -257,12 +263,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               });
             } catch (profileError) {
               console.error('Error creating profile:', profileError);
+              // Handle profile creation error gracefully
+              newProfile = {
+                id: authUser.id,
+                email: authUser.email,
+                name: authUser.user_metadata?.name || authUser.email.split('@')[0],
+                role: 'user'
+              };
             }
             
             if (newProfile) {
               setProfile(newProfile);
             }
-          } else {
+          } else if (userProfile) {
             setProfile(userProfile);
           }
           
@@ -274,6 +287,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             role: userProfile?.role || 'user',
             // Add additional user fields if needed
           });
+          
+          setIsAuthenticated(true);
         } else if (hasLocalToken) {
           // Legacy token exists but no Supabase session
           // Attempt to refresh the session
@@ -346,19 +361,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       
       // Get user profile from Supabase profiles table
-      const userProfile = await getProfileById(authUser.id);
+      let userProfile;
+      try {
+        userProfile = await getProfileById(authUser.id);
+      } catch (profileError) {
+        console.error('Error getting profile during login:', profileError);
+        // Continue without profile
+      }
       
       // Create profile if it doesn't exist
       if (!userProfile && authUser.email) {
-        const newProfile = await createProfile({
-          id: authUser.id,
-          email: authUser.email,
-          name: authUser.user_metadata?.name || email.split('@')[0],
-          role: 'user'
-        });
-        
-        setProfile(newProfile);
-      } else {
+        try {
+          const newProfile = await createProfile({
+            id: authUser.id,
+            email: authUser.email,
+            name: authUser.user_metadata?.name || email.split('@')[0],
+            role: 'user'
+          });
+          
+          if (newProfile) {
+            setProfile(newProfile);
+          }
+        } catch (profileError) {
+          console.error('Error creating profile during login:', profileError);
+          // Continue with a minimal profile
+          setProfile({
+            id: authUser.id,
+            email: authUser.email,
+            name: authUser.user_metadata?.name || email.split('@')[0],
+            role: 'user'
+          });
+        }
+      } else if (userProfile) {
         setProfile(userProfile);
       }
       
@@ -370,6 +404,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role: userProfile?.role || 'user',
       });
       
+      setIsAuthenticated(true);
       toast.success('Login successful');
       
       // Only redirect if shouldRedirect is true

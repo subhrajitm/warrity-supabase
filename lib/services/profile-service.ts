@@ -1,4 +1,5 @@
-import supabase from '../supabase-config';
+import supabase from '@/lib/supabase-config';
+import { getCurrentUser } from '@/lib/supabase-auth';
 import { supabaseGet, supabasePost, supabasePut } from '../supabase-api';
 
 export interface Profile {
@@ -18,73 +19,120 @@ export interface Profile {
   updated_at?: string;
 }
 
-/**
- * Get the current user's profile
- */
-export async function getCurrentProfile(): Promise<Profile | null> {
+// Helper function to check if profiles table exists
+async function checkProfilesTable(): Promise<boolean> {
   try {
-    // Check if we're in a browser environment
-    if (typeof window === 'undefined') {
-      return null; // Server-side, no profile available
+    // Try a simple query first
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .limit(1);
+    
+    if (error) {
+      if (error.code === '42P01') { // Table doesn't exist
+        console.warn('Profiles table does not exist');
+        return false;
+      }
+      // For other errors, just log and continue
+      console.error('Error checking profiles table:', error);
+      return true; // Assume table exists for other errors
     }
     
-    // Get current user ID
-    try {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      
-      if (!user) return null;
-      
-      // Get profile for this user ID
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-      if (error) throw error;
-      return profile;
-    } catch (authError) {
-      console.warn('Error getting current user:', authError);
-      return null;
-    }
+    return true;
   } catch (error) {
-    console.error('Error getting current profile:', error);
-    return null;
+    console.error('Error checking profiles table:', error);
+    return false;
   }
 }
 
 /**
- * Get a profile by ID
+ * Get the current user's profile
  */
-export async function getProfileById(id: string): Promise<Profile | null> {
+export const getCurrentProfile = async (): Promise<Profile | null> => {
+  // Don't attempt to get profile on the server side
+  if (typeof window === 'undefined') {
+    console.info('getCurrentProfile called on server side, returning null');
+    return null;
+  }
+
   try {
-    if (!id) {
-      console.warn('getProfileById called without an ID');
+    // Get the current user
+    let user;
+    try {
+      user = await getCurrentUser();
+    } catch (error) {
+      console.warn('Failed to get current user during profile fetch:', error);
       return null;
     }
-    
+
+    if (!user) {
+      console.info('No authenticated user found during profile fetch');
+      return null;
+    }
+
+    // Get the user's profile
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching profile:', error);
+      // Return null instead of throwing to make handling easier
+      return null;
+    }
+
+    if (!data) {
+      console.info(`No profile found for user ${user.id}`);
+      return null;
+    }
+
+    return data as Profile;
+  } catch (error) {
+    console.error('Unexpected error in getCurrentProfile:', error);
+    return null;
+  }
+};
+
+/**
+ * Get a profile by ID
+ */
+export const getProfileById = async (id: string): Promise<Profile | null> => {
+  if (!id) {
+    console.warn('getProfileById called with empty ID');
+    return null;
+  }
+
+  try {
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', id)
       .single();
-    
+
     if (error) {
+      // Check if this is a not found error, which is expected in some cases
       if (error.code === 'PGRST116') {
-        // Not found error - this is normal if profile doesn't exist yet
-        console.log(`No profile found for ID ${id}`);
+        console.info(`No profile found for ID ${id}`);
         return null;
       }
-      throw error;
+      
+      console.error(`Error fetching profile for ID ${id}:`, error);
+      return null;
     }
-    
-    return data;
+
+    if (!data) {
+      console.info(`No profile data returned for ID ${id}`);
+      return null;
+    }
+
+    return data as Profile;
   } catch (error) {
-    console.error(`Error getting profile with ID ${id}:`, error);
+    console.error(`Unexpected error in getProfileById for ID ${id}:`, error);
     return null;
   }
-}
+};
 
 /**
  * Get all profiles (admin only)
@@ -139,6 +187,13 @@ export async function updateProfile(profile: Partial<Profile>): Promise<Profile 
  */
 export async function createProfile(profile: Partial<Profile>): Promise<Profile | null> {
   try {
+    // First check if profiles table exists
+    const tableExists = await checkProfilesTable();
+    if (!tableExists) {
+      console.warn('Profiles table does not exist, cannot create profile');
+      return null;
+    }
+    
     // Get current user ID if not provided
     if (!profile.id) {
       const { data: { user } } = await supabase.auth.getUser();
@@ -161,14 +216,40 @@ export async function createProfile(profile: Partial<Profile>): Promise<Profile 
       profile.role = 'user';
     }
     
-    const { data, error } = await supabase
-      .from('profiles')
-      .insert([profile])
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .insert([{
+          ...profile,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    } catch (insertError) {
+      console.error('Error inserting profile:', insertError);
+      
+      // If insert fails, check if profile already exists
+      try {
+        const { data: existingProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', profile.id)
+          .single();
+        
+        if (existingProfile) {
+          console.log('Profile already exists, returning existing profile');
+          return existingProfile;
+        }
+      } catch (checkError) {
+        console.error('Error checking for existing profile:', checkError);
+      }
+      
+      return null;
+    }
   } catch (error) {
     console.error('Error creating profile:', error);
     return null;
@@ -176,10 +257,14 @@ export async function createProfile(profile: Partial<Profile>): Promise<Profile 
 }
 
 /**
- * Upload a profile picture
+ * Uploads a profile picture to Supabase Storage
+ * @param file The file to upload
+ * @param userId The user ID
  */
-export async function uploadProfilePicture(file: File): Promise<string | null> {
+export const uploadProfilePicture = async (file: File, userId: string): Promise<string | null> => {
   try {
+    const bucket = 'profile-pictures';
+    
     // Get current user ID
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('No authenticated user');
@@ -263,12 +348,11 @@ export async function uploadProfilePicture(file: File): Promise<string | null> {
 }
 
 /**
- * Subscribe to profile changes
+ * Subscribes to changes in a profile
+ * @param userId The user ID to subscribe to changes for
+ * @param onUpdate The callback to execute when the profile is updated
  */
-export function subscribeToProfileChanges(
-  callback: (payload: any) => void, 
-  userId?: string
-) {
+export const subscribeToProfileChanges = (userId: string, onUpdate: (payload: any) => void) => {
   // Build the filter if a user ID is provided
   const filter = userId ? `id=eq.${userId}` : undefined;
   
@@ -288,7 +372,7 @@ export function subscribeToProfileChanges(
         filter
       },
       (payload) => {
-        callback(payload);
+        onUpdate(payload);
       }
     )
     .subscribe();

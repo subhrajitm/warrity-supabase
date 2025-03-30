@@ -132,11 +132,14 @@ export default function UserDashboard() {
   }
   
   // Helper function to get product name
-  const getProductName = (product: string | Product) => {
+  const getProductName = (product: string | Product | undefined) => {
+    if (!product) {
+      return 'Unknown Product';
+    }
     if (typeof product === 'string') {
       return 'Unknown Product'; // Fallback if we only have the ID
     }
-    return product.name;
+    return product.name || 'Unknown Product';
   };
   
   return (

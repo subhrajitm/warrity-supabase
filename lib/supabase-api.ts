@@ -1,4 +1,5 @@
 import supabase from './supabase-config';
+import { getAllWarranties, getWarrantyById, getExpiringWarranties, getWarrantyStats } from './services/warranty-service';
 
 /**
  * Utility function to get the auth token from localStorage or Supabase session
@@ -41,6 +42,10 @@ export const APP_URL = typeof window !== 'undefined'
   ? process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com'
   : process.env.NEXT_PUBLIC_APP_URL || 'https://warrity.com';
 
+// Check if we should use direct Supabase queries instead of API
+// This is a workaround for CORS issues
+const USE_DIRECT_SUPABASE = true;
+
 /**
  * Utility function to make GET requests using Supabase
  * @param path - The API path to request
@@ -67,6 +72,24 @@ export async function supabaseGet<T>(
     // For supabase data queries
     if (path.startsWith('/')) {
       path = path.substring(1); // Remove the leading slash for Supabase paths
+    }
+    
+    // Handle direct Supabase queries for specific endpoints
+    if (USE_DIRECT_SUPABASE) {
+      // Handle warranty-related endpoints
+      if (path === 'warranties' || path.startsWith('warranties/')) {
+        return await handleWarrantyEndpoints<T>(path, queryParams, options);
+      }
+      
+      // Handle profiles endpoints
+      if (path === 'profiles' || path.startsWith('profiles/')) {
+        return await handleProfileEndpoints<T>(path, queryParams, options);
+      }
+      
+      // Handle products endpoints
+      if (path === 'products' || path.startsWith('products/')) {
+        return await handleProductEndpoints<T>(path, queryParams, options);
+      }
     }
     
     // Handle different types of requests
@@ -122,6 +145,228 @@ export async function supabaseGet<T>(
     console.error(`Error making GET request to ${path}:`, error);
     throw error;
   }
+}
+
+/**
+ * Handle warranty-related endpoints directly with Supabase
+ */
+async function handleWarrantyEndpoints<T>(
+  path: string,
+  params: Record<string, string> = {},
+  options?: Record<string, any>
+): Promise<T> {
+  // Extract ID if it's in the path
+  const pathParts = path.split('/');
+  const isDetailPath = pathParts.length > 1;
+  const warrantyId = isDetailPath ? pathParts[1] : null;
+  
+  // Handle different endpoints
+  if (path === 'warranties') {
+    // Get all warranties using service with fallback
+    try {
+      const warranties = await getAllWarranties();
+      console.log('Retrieved warranties from service:', warranties.length);
+      
+      return { 
+        warranties,
+        // Add pagination info if needed
+        pagination: {
+          total: warranties.length,
+          page: 1,
+          limit: warranties.length,
+          totalPages: 1
+        }
+      } as unknown as T;
+    } catch (error) {
+      console.error('Error in handleWarrantyEndpoints for warranties list:', error);
+      // Return empty array as fallback
+      return { 
+        warranties: [],
+        pagination: {
+          total: 0,
+          page: 1,
+          limit: 10,
+          totalPages: 0
+        }
+      } as unknown as T;
+    }
+  } else if (warrantyId && pathParts.length === 2) {
+    // Get warranty by ID using service with fallback
+    try {
+      const warranty = await getWarrantyById(warrantyId);
+      
+      if (!warranty) {
+        throw new Error(`Warranty with ID ${warrantyId} not found`);
+      }
+      
+      return { warranty } as unknown as T;
+    } catch (error) {
+      console.error(`Error in handleWarrantyEndpoints for warranty ID ${warrantyId}:`, error);
+      // Return null as fallback
+      return { warranty: null } as unknown as T;
+    }
+  } else if (path === 'warranties/expiring') {
+    // Get expiring warranties using service with fallback
+    try {
+      const warranties = await getExpiringWarranties(30);
+      
+      return { warranties } as unknown as T;
+    } catch (error) {
+      console.error('Error in handleWarrantyEndpoints for expiring warranties:', error);
+      // Return empty array as fallback
+      return { warranties: [] } as unknown as T;
+    }
+  } else if (path === 'warranties/stats/overview') {
+    // Get warranty stats using service with fallback
+    try {
+      const stats = await getWarrantyStats();
+      const warranties = await getAllWarranties();
+      
+      return {
+        ...stats,
+        warrantyByCategory: [],
+        recentWarranties: warranties.slice(0, 5)
+      } as unknown as T;
+    } catch (error) {
+      console.error('Error in handleWarrantyEndpoints for warranty stats:', error);
+      // Return empty stats as fallback
+      return {
+        total: 0,
+        active: 0,
+        expiring: 0,
+        expired: 0,
+        warrantyByCategory: [],
+        recentWarranties: []
+      } as unknown as T;
+    }
+  }
+  
+  // If not a handled endpoint, throw error
+  throw new Error(`Warranty endpoint not implemented: ${path}`);
+}
+
+/**
+ * Handle profile-related endpoints directly with Supabase
+ */
+async function handleProfileEndpoints<T>(
+  path: string,
+  params: Record<string, string> = {},
+  options?: Record<string, any>
+): Promise<T> {
+  // Handle various profile endpoints here as needed
+  if (path === 'profiles') {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*');
+    
+    if (error) throw error;
+    return data as unknown as T;
+  }
+  
+  // Add more profile-related handlers as needed
+  
+  // If not a handled endpoint, throw error
+  throw new Error(`Profile endpoint not implemented: ${path}`);
+}
+
+/**
+ * Handle product-related endpoints directly with Supabase
+ */
+async function handleProductEndpoints<T>(
+  path: string,
+  params: Record<string, string> = {},
+  options?: Record<string, any>
+): Promise<T> {
+  // Extract ID if it's in the path
+  const pathParts = path.split('/');
+  const isDetailPath = pathParts.length > 1;
+  const productId = isDetailPath ? pathParts[1] : null;
+  
+  // Handle different endpoints
+  if (path === 'products') {
+    // Get all products
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Map to format expected by frontend
+    const productsWithCompatibleIds = data.map(product => ({
+      _id: product.id,
+      ...product
+    }));
+    
+    return { 
+      products: productsWithCompatibleIds,
+      // Add pagination info if needed
+      pagination: {
+        total: data.length,
+        page: 1,
+        limit: data.length,
+        totalPages: 1
+      }
+    } as unknown as T;
+  } else if (productId && pathParts.length === 2) {
+    // Get product by ID
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .single();
+    
+    if (error) throw error;
+    
+    // Map to format expected by frontend
+    const productWithCompatibleId = {
+      _id: data.id,
+      ...data
+    };
+    
+    return { product: productWithCompatibleId } as unknown as T;
+  } else if (path === 'products/stats') {
+    // Get product stats 
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*');
+    
+    if (error) throw error;
+    
+    return {
+      total: products.length,
+      byCategory: Object.entries(
+        products.reduce((acc, product) => {
+          const category = product.category || 'Uncategorized';
+          acc[category] = (acc[category] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      ).map(([category, count]) => ({
+        category,
+        count
+      })),
+      byManufacturer: Object.entries(
+        products.reduce((acc, product) => {
+          const manufacturer = product.manufacturer || 'Unknown';
+          acc[manufacturer] = (acc[manufacturer] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>)
+      ).map(([manufacturer, count]) => ({
+        manufacturer,
+        count
+      })),
+      recentProducts: products
+        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+        .slice(0, 5)
+        .map(product => ({
+          _id: product.id,
+          ...product
+        }))
+    } as unknown as T;
+  }
+  
+  // If not a handled endpoint, throw error
+  throw new Error(`Product endpoint not implemented: ${path}`);
 }
 
 /**

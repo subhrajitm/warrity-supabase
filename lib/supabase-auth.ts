@@ -127,25 +127,34 @@ export async function getCurrentUser() {
       return null; // Server-side, no user available
     }
     
-    const { data, error } = await supabase.auth.getUser();
-    if (error) {
-      if (error.message === 'Auth session missing!') {
-        // This error occurs when there's no active session
-        // It's a normal state, not an exception
-        console.log('No auth session found');
-        return null;
+    try {
+      const { data, error } = await supabase.auth.getUser();
+      if (error) {
+        if (error.message === 'Auth session missing!' || 
+            error.message.includes('session')) {
+          // This error occurs when there's no active session
+          // It's a normal state, not an exception
+          console.log('No auth session found');
+          return null;
+        }
+        throw error;
       }
-      throw error;
+      
+      return data.user;
+    } catch (innerError) {
+      // Only log as error if it's not the auth session missing error
+      if (innerError instanceof Error && 
+          !innerError.message.includes('session') && 
+          !innerError.message.includes('auth')) {
+        console.error('Error getting current user:', innerError);
+      } else {
+        console.log('Session not found, user not authenticated');
+      }
+      return null;
     }
-    
-    return data.user;
   } catch (error) {
-    // Only log as error if it's not the auth session missing error
-    if (error instanceof Error && error.message !== 'Auth session missing!') {
-      console.error('Error getting current user:', error);
-    } else {
-      console.log('Session not found, user not authenticated');
-    }
+    // This is an unexpected error in the outer try/catch
+    console.error('Unexpected error in getCurrentUser:', error);
     return null;
   }
 }

@@ -21,6 +21,9 @@ import {
   apiEndpoints,
   handleApiError 
 } from "@/lib/api-utils"
+import { getAllEvents, createEvent, deleteEvent, updateEvent } from "@/lib/services/events-service"
+import { getAllProducts } from "@/lib/services/products-service"
+import { toast } from "react-hot-toast"
 
 // Define the event type
 interface CalendarEvent {
@@ -110,25 +113,45 @@ export default function CalendarPage() {
     try {
       setIsProductsLoading(true);
       
-      const data = await ApiCache.fetchWithCache<ApiResponse<Product[]>>(
-        apiEndpoints.products.list,
-        createApiRequest(apiEndpoints.products.list)
-      );
-      
-      if (data.error) {
-        console.error('Error fetching products:', data.error);
-        return;
-      }
-
-      // Handle different response formats
       let productsData: Product[] = [];
       
-      if (Array.isArray(data.data)) {
-        productsData = data.data;
-      } else if (Array.isArray(data.products)) {
-        productsData = data.products;
-      } else {
-        console.error('Unexpected data format:', data);
+      try {
+        // Try to use the Supabase service first
+        const products = await getAllProducts();
+        console.log('Retrieved products from Supabase:', products.length);
+        
+        // Convert from Supabase Product format to our Product format
+        productsData = products.map(product => ({
+          _id: product.id,
+          name: product.name || 'Unnamed Product',
+          description: product.description || '',
+          category: product.category || 'Uncategorized',
+          manufacturer: product.manufacturer || '',
+          model: product.model || ''
+        }));
+      } catch (supabaseError) {
+        console.error('Error fetching from Supabase directly:', supabaseError);
+        
+        // Fall back to the API if Supabase direct fails
+        console.log('Falling back to API endpoint:', apiEndpoints.products.list);
+        const data = await ApiCache.fetchWithCache<ApiResponse<Product[]>>(
+          apiEndpoints.products.list,
+          createApiRequest(apiEndpoints.products.list)
+        );
+        
+        if (data.error) {
+          console.error('Error in API response:', data.error);
+          return;
+        }
+
+        // Handle different response formats
+        if (Array.isArray(data.data)) {
+          productsData = data.data;
+        } else if (Array.isArray(data.products)) {
+          productsData = data.products;
+        } else {
+          console.error('Unexpected data format:', data);
+        }
       }
 
       // Process and normalize product data
@@ -140,8 +163,12 @@ export default function CalendarPage() {
       }));
       
       setProducts(normalizedProducts);
+      console.log('Products loaded:', normalizedProducts.length);
+      
     } catch (err) {
       console.error('Error fetching products:', err);
+      // Provide empty array as fallback
+      setProducts([]);
     } finally {
       setIsProductsLoading(false);
     }
@@ -190,33 +217,58 @@ export default function CalendarPage() {
   const fetchEvents = async () => {
     try {
       setIsLoading(true);
-      console.log('Fetching events from:', apiEndpoints.events.list);
+      console.log('Fetching events directly from Supabase');
       
-      const data = await ApiCache.fetchWithCache<ApiResponse<CalendarEvent[]>>(
-        apiEndpoints.events.list,
-        createApiRequest(apiEndpoints.events.list)
-      );
-      
-      console.log('Raw API response:', JSON.stringify(data, null, 2));
-      
-      if (data.error) {
-        console.error('Error in API response:', data.error);
-        return;
-      }
-
-      // Handle different response formats
       let eventsData: CalendarEvent[] = [];
       
-      if (Array.isArray(data.events)) {
-        console.log('Found events in data.events:', data.events.length);
-        eventsData = data.events;
-      } else if (Array.isArray(data.data)) {
-        console.log('Found events in data.data:', data.data.length);
-        eventsData = data.data;
-      } else {
-        console.error('Unexpected data format:', data);
-        console.error('data.events type:', typeof data.events);
-        console.error('data.data type:', typeof data.data);
+      try {
+        // Try to use the Supabase service first
+        const events = await getAllEvents();
+        console.log('Retrieved events from Supabase:', events.length);
+        
+        // Convert from Supabase Event format to CalendarEvent format
+        eventsData = events.map(event => ({
+          _id: event.id,
+          title: event.title || event.description,
+          description: event.description,
+          eventType: event.event_type,
+          startDate: event.date || event.startDate || new Date().toISOString(),
+          endDate: event.endDate,
+          allDay: event.allDay || true,
+          location: event.location,
+          color: event.color || getEventColor(event.event_type),
+          createdAt: event.created_at,
+          updatedAt: event.updated_at
+        }));
+      } catch (supabaseError) {
+        console.error('Error fetching from Supabase directly:', supabaseError);
+        
+        // Fall back to the API if Supabase direct fails
+        console.log('Falling back to API endpoint:', apiEndpoints.events.list);
+        const data = await ApiCache.fetchWithCache<ApiResponse<CalendarEvent[]>>(
+          apiEndpoints.events.list,
+          createApiRequest(apiEndpoints.events.list)
+        );
+        
+        console.log('Raw API response:', JSON.stringify(data, null, 2));
+        
+        if (data.error) {
+          console.error('Error in API response:', data.error);
+          return;
+        }
+
+        // Handle different response formats
+        if (Array.isArray(data.events)) {
+          console.log('Found events in data.events:', data.events.length);
+          eventsData = data.events;
+        } else if (Array.isArray(data.data)) {
+          console.log('Found events in data.data:', data.data.length);
+          eventsData = data.data;
+        } else {
+          console.error('Unexpected data format:', data);
+          console.error('data.events type:', typeof data.events);
+          console.error('data.data type:', typeof data.data);
+        }
       }
 
       // Process and normalize event data
@@ -231,7 +283,7 @@ export default function CalendarPage() {
         return {
           ...event,
           startDate: eventDate.toISOString(),
-          color: event.color || '#3498db'
+          color: event.color || getEventColor(event.eventType)
         };
       });
       
@@ -413,138 +465,173 @@ export default function CalendarPage() {
     }));
   };
   
-  // Handle event creation
+  // Handle creating a new event
   const handleCreateEvent = async () => {
-    if (!newEvent.title || !newEvent.startDate) {
-      alert("Please fill in all required fields");
-      return;
-    }
-    
     try {
       setIsCreating(true);
       
-      // Create optimistic event
-      const optimisticEvent: CalendarEvent = {
-        ...newEvent,
-        _id: 'temp-' + Date.now(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+      if (!newEvent.title) {
+        toast.error('Please enter a title for the event');
+        return;
+      }
       
-      // Add optimistic event to state
-      setEvents(prev => [...prev, optimisticEvent]);
+      if (!selectedDate) {
+        toast.error('Please select a date for the event');
+        return;
+      }
       
-      // Format event data to match API requirements
-      const formattedEvent = {
+      // Format the date
+      const formattedDate = selectedDate.toISOString();
+      
+      // Create event data for Supabase
+      const eventData = {
         title: newEvent.title,
-        description: newEvent.description || '',
-        date: new Date(newEvent.startDate).toISOString(), // Ensure proper ISO8601 format
-        type: newEvent.eventType === 'warranty' ? 'expiration' : 
-              newEvent.eventType === 'maintenance' ? 'maintenance' : 
-              newEvent.eventType === 'reminder' ? 'reminder' : 'reminder', // Ensure valid type
-        warranty: newEvent.relatedWarranty || undefined,
-        allDay: newEvent.allDay || false,
-        color: newEvent.color || '#3498db',
-        notifications: newEvent.notifications || {
-          enabled: true,
-          reminderTime: 24
-        }
+        description: newEvent.description,
+        event_type: newEvent.eventType,
+        date: formattedDate,
+        allDay: newEvent.allDay,
+        location: newEvent.location,
+        color: getEventColor(newEvent.eventType),
+        warranty_id: newEvent.relatedWarranty || undefined
       };
       
-      console.log('Sending event data:', formattedEvent); // Debug log
+      console.log('Creating event with data:', eventData);
       
-      const response = await fetch(
-        apiEndpoints.events.list,
-        createApiRequest(apiEndpoints.events.list, 'POST', formattedEvent)
-      );
-      
-      if (!response.ok) {
-        // Remove optimistic event on failure
-        setEvents(prev => prev.filter(e => e._id !== optimisticEvent._id));
-        const errorMessage = await handleApiError(response);
-        throw new Error(errorMessage);
-      }
-      
-      const data = await response.json();
-      console.log('Create event response:', data); // Debug log
-      
-      // Handle different response formats
-      const createdEvent = data.event || data;
-      
-      if (createdEvent && createdEvent._id) {
-        // Replace optimistic event with real event
-        setEvents(prev => prev.map(e => 
-          e._id === optimisticEvent._id ? createdEvent : e
-        ));
+      try {
+        // Try to use Supabase service first
+        const createdEvent = await createEvent(eventData);
         
-        // Reset form and close dialog
-        setNewEvent({
-          title: "",
-          description: "",
-          eventType: "expiration",
-          startDate: new Date().toISOString().split('T')[0],
-          allDay: true,
-          color: "#3498db",
-          notifications: {
-            enabled: true,
-            reminderTime: 24
-          }
+        if (createdEvent) {
+          // Convert to CalendarEvent format and add to state
+          const newCalendarEvent: CalendarEvent = {
+            _id: createdEvent.id,
+            title: createdEvent.title || createdEvent.description,
+            description: createdEvent.description,
+            eventType: createdEvent.event_type,
+            startDate: createdEvent.date,
+            allDay: createdEvent.allDay || true,
+            location: createdEvent.location,
+            color: createdEvent.color || getEventColor(createdEvent.event_type),
+            relatedWarranty: createdEvent.warranty_id,
+            createdAt: createdEvent.created_at,
+            updatedAt: createdEvent.updated_at
+          };
+          
+          setEvents([...events, newCalendarEvent]);
+          toast.success('Event created successfully');
+          setIsDialogOpen(false);
+        } else {
+          throw new Error('Failed to create event with Supabase');
+        }
+      } catch (supabaseError) {
+        console.error('Error creating event with Supabase:', supabaseError);
+        
+        // Fall back to API endpoint
+        const response = await fetch(apiEndpoints.events.list, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+          },
+          body: JSON.stringify({
+            title: newEvent.title,
+            description: newEvent.description,
+            eventType: newEvent.eventType,
+            startDate: formattedDate,
+            allDay: newEvent.allDay,
+            location: newEvent.location,
+            relatedProduct: newEvent.relatedProduct,
+            relatedWarranty: newEvent.relatedWarranty
+          })
         });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to create event: ${errorText}`);
+        }
+        
+        const data = await response.json();
+        
+        console.log('API Response:', data);
+        const createdEvent = data.event || data.data;
+        
+        if (!createdEvent) {
+          throw new Error('No event data returned from API');
+        }
+        
+        // Add the new event to the state
+        setEvents([...events, createdEvent]);
+        
+        toast.success('Event created successfully');
         setIsDialogOpen(false);
-        
-        // Select the date of the new event
-        setSelectedDate(new Date(createdEvent.startDate));
-        
-        // Clear cache for events
-        ApiCache.removeFromCache(apiEndpoints.events.list);
-        
-        alert('Event created successfully!');
-      } else {
-        throw new Error('Invalid event data returned');
       }
+      
+      // Reset the form
+      setNewEvent({
+        title: '',
+        description: '',
+        eventType: 'maintenance',
+        allDay: true,
+        location: '',
+        relatedProduct: '',
+        relatedWarranty: '',
+        startDate: new Date().toISOString()
+      });
     } catch (error) {
       console.error('Error creating event:', error);
-      alert(`Failed to create event: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      toast.error('Failed to create event: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsCreating(false);
     }
   };
   
-  // Handle event deletion
+  // Handle deleting an event
   const handleDeleteEvent = async (id: string) => {
-    if (confirm("Are you sure you want to delete this event?")) {
+    try {
+      setIsDeleting(true);
+      
+      console.log('Deleting event with ID:', id);
+      
       try {
-        setIsDeleting(true);
+        // Try to use Supabase service first
+        const success = await deleteEvent(id);
         
-        const response = await fetch(
-          apiEndpoints.events.detail(id),
-          createApiRequest(apiEndpoints.events.detail(id), 'DELETE')
-        );
+        if (success) {
+          // Remove the event from state
+          setEvents(events.filter(event => event._id !== id));
+          toast.success('Event deleted successfully');
+          setIsViewDialogOpen(false);
+        } else {
+          throw new Error('Failed to delete event with Supabase');
+        }
+      } catch (supabaseError) {
+        console.error('Error deleting event with Supabase:', supabaseError);
+        
+        // Fall back to API endpoint
+        const response = await fetch(apiEndpoints.events.detail(id), {
+          method: 'DELETE',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('authToken') || ''}`
+          }
+        });
         
         if (!response.ok) {
-          const errorMessage = await handleApiError(response);
-          throw new Error(errorMessage);
+          const errorText = await response.text();
+          throw new Error(`Failed to delete event: ${errorText}`);
         }
         
-        // Remove the deleted event from state
-        setEvents(prev => prev.filter(event => event._id !== id));
+        // Remove the event from state
+        setEvents(events.filter(event => event._id !== id));
         
-        // Close the view dialog if it's open
-        if (isViewDialogOpen && selectedEvent && selectedEvent._id === id) {
-          setIsViewDialogOpen(false);
-          setSelectedEvent(null);
-        }
-        
-        // Clear cache for events
-        ApiCache.removeFromCache(apiEndpoints.events.list);
-        
-        alert('Event deleted successfully!');
-      } catch (error) {
-        console.error('Error deleting event:', error);
-        alert(`Failed to delete event: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      } finally {
-        setIsDeleting(false);
+        toast.success('Event deleted successfully');
+        setIsViewDialogOpen(false);
       }
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      toast.error('Failed to delete event: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsDeleting(false);
     }
   };
   
@@ -615,6 +702,22 @@ export default function CalendarPage() {
       createdAt: apiEvent.createdAt,
       updatedAt: apiEvent.updatedAt
     };
+  };
+  
+  // Get a color based on event type
+  const getEventColor = (type: string): string => {
+    switch (type) {
+      case 'maintenance':
+        return '#3498db'; // Blue
+      case 'warranty':
+        return '#2ecc71'; // Green
+      case 'expiration':
+        return '#e74c3c'; // Red
+      case 'reminder':
+        return '#f39c12'; // Orange
+      default:
+        return '#9b59b6'; // Purple
+    }
   };
   
   if (isLoading) {

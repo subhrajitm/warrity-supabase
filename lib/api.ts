@@ -1,6 +1,6 @@
 // Types
-import { Warranty, WarrantyInput, WarrantyDocument } from '../types/warranty';
-import { Product } from '../types/product';
+import { Warranty, WarrantyInput, WarrantyDocument, User, Product } from '../types/warranty';
+import { getWarranties } from './services/warranty-service';
 
 // Re-export everything from the Supabase adapter
 export * from './api-adapter';
@@ -17,32 +17,6 @@ export interface ApiResponse<T = any> {
 }
 
 // API Types
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: 'user' | 'admin';
-  isVerified: boolean;
-  phone?: string;
-  bio?: string;
-  profilePicture?: string;
-  socialLinks?: {
-    twitter?: string;
-    linkedin?: string;
-    github?: string;
-    instagram?: string;
-  };
-  preferences?: {
-    emailNotifications: boolean;
-    reminderDays: number;
-    theme?: string;
-    notifications?: boolean;
-    language?: string;
-  };
-  createdAt: string;
-  updatedAt: string;
-}
-
 interface UserProfile {
   id: string;
   userId: string;
@@ -481,22 +455,41 @@ export const userApi = {
     apiRequest<User>(`/users/${userId}`, 'GET')
 };
 
+// Import the required functions only, no interfaces to avoid type conflicts
+import { supabaseGet } from './supabase-api';
+import { getAllWarranties, getExpiringWarranties as getExpiringWarrantiesFromService } from './services/warranty-service';
+
 // Warranty API
 export const warrantyApi = {
   getAllWarranties: async () => {
-    const response = await apiRequest<Warranty[] | { warranties: Warranty[] }>('/warranties', 'GET');
-    
-    // Handle both response formats (array or object with warranties property)
-    if (response.error) {
-      return { error: response.error, data: [] };
-    }
-    
-    // Check if response.data is an array or has a warranties property
-    const warranties = Array.isArray(response.data) 
-      ? response.data 
-      : (response.data as { warranties: Warranty[] }).warranties || [];
+    try {
+      // Try to get warranties directly from the service first
+      // This will provide mock data if the table doesn't exist
+      const warranties = await getAllWarranties();
       
-    return { data: warranties };
+      console.log(`Retrieved ${warranties.length} warranties (including potential mock data)`);
+      
+      return {
+        success: true,
+        data: warranties // Return in the format expected by the app
+      };
+    } catch (directError) {
+      console.error('Error fetching warranties directly:', directError);
+      
+      // Fall back to API approach
+      try {
+        const data = await supabaseGet('warranties');
+        console.log('Retrieved warranties from API endpoint');
+        return { success: true, data };
+      } catch (apiError) {
+        console.error('Error fetching warranties from API:', apiError);
+        return { 
+          success: false, 
+          error: 'Failed to load warranties',
+          data: [] // Return empty array to avoid undefined errors
+        };
+      }
+    }
   },
   
   getWarrantyById: async (id: string) => {
@@ -505,77 +498,160 @@ export const warrantyApi = {
       return { error: 'Invalid warranty ID' };
     }
     
-    const response = await apiRequest<Warranty | { warranty: Warranty }>(`/warranties/${id}`, 'GET');
-    
-    // Handle both response formats (object or object with warranty property)
-    if (response.error) {
-      return { error: response.error };
+    try {
+      const response = await getWarranty(id);
+      // Convert to the app's warranty format
+      const warranty = convertSupabaseWarrantyToAppWarranty(response.warranty);
+      return { data: warranty };
+    } catch (error) {
+      console.error(`Error getting warranty with ID ${id}:`, error);
+      return { error: error instanceof Error ? error.message : 'Failed to load warranty' };
     }
-    
-    // Check if response.data has a warranty property
-    const warranty = (response.data as { warranty?: Warranty }).warranty || response.data;
-    
-    return { data: warranty as Warranty };
   },
   
   createWarranty: async (warrantyData: WarrantyInput) => {
     try {
-      const response = await apiRequest<Warranty | { warranty: Warranty }>('/warranties', 'POST', warrantyData);
-      
-      // Handle both response formats (object or object with warranty property)
-      if (response.error) {
-        // Try to parse validation errors if present
-        let errorMessage = response.error;
-        
-        try {
-          // Check if the response contains a JSON string with validation errors
-          if (typeof response.error === 'string' && response.error.includes('Validation error')) {
-            const match = response.error.match(/{.*}/);
-            if (match) {
-              const errorObj = JSON.parse(match[0]);
-              if (errorObj.errors && Array.isArray(errorObj.errors)) {
-                // Return detailed validation errors
-                return { 
-                  error: 'Validation error', 
-                  validationErrors: errorObj.errors 
-                };
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Error parsing validation errors:', e);
-        }
-        
-        return { error: errorMessage };
-      }
-      
-      // Check if response.data has a warranty property
-      const warranty = (response.data as { warranty?: Warranty }).warranty || response.data;
-      
-      return { data: warranty as Warranty };
+      // Convert from app warranty format to Supabase format
+      const supabaseWarrantyData = convertAppWarrantyToSupabaseWarranty(warrantyData);
+      const response = await createSupabaseWarranty(supabaseWarrantyData);
+      // Convert back to app format for the response
+      const warranty = convertSupabaseWarrantyToAppWarranty(response.warranty);
+      return { data: warranty };
     } catch (error) {
       console.error('Error creating warranty:', error);
-      return { error: error instanceof Error ? error.message : 'Unknown error occurred' };
+      return { error: error instanceof Error ? error.message : 'Failed to create warranty' };
     }
   },
   
-  updateWarranty: (id: string, warrantyData: Partial<Warranty>) => 
-    apiRequest<{ warranty: Warranty }>(`/warranties/${id}`, 'PUT', warrantyData),
+  updateWarranty: async (id: string, warrantyData: Partial<WarrantyInput>) => {
+    try {
+      // Convert from app warranty format to Supabase format
+      const supabaseWarrantyData = convertAppWarrantyToSupabaseWarranty(warrantyData as WarrantyInput);
+      const response = await updateSupabaseWarranty(id, supabaseWarrantyData);
+      // Convert back to app format for the response
+      const warranty = convertSupabaseWarrantyToAppWarranty(response.warranty);
+      return { data: warranty };
+    } catch (error) {
+      console.error(`Error updating warranty with ID ${id}:`, error);
+      return { error: error instanceof Error ? error.message : 'Failed to update warranty' };
+    }
+  },
   
-  deleteWarranty: (id: string) => 
-    apiRequest(`/warranties/${id}`, 'DELETE'),
+  deleteWarranty: async (id: string) => {
+    try {
+      await deleteSupabaseWarranty(id);
+      return { data: { success: true } };
+    } catch (error) {
+      console.error(`Error deleting warranty with ID ${id}:`, error);
+      return { error: error instanceof Error ? error.message : 'Failed to delete warranty' };
+    }
+  },
   
-  getExpiringWarranties: () => 
-    apiRequest<{ warranties: Warranty[] }>('/warranties/expiring', 'GET'),
+  getExpiringWarranties: async () => {
+    try {
+      // Use the service function that already handles expiring warranties
+      const expiringWarranties = await getExpiringWarrantiesFromService(30); // Get warranties expiring in 30 days
+      
+      console.log(`Retrieved ${expiringWarranties.length} expiring warranties`);
+      
+      return { 
+        success: true, 
+        data: { warranties: expiringWarranties } 
+      };
+    } catch (directError) {
+      console.error('Error fetching expiring warranties directly:', directError);
+      
+      // Fall back to API approach
+      try {
+        const data = await supabaseGet('warranties/expiring');
+        console.log('Retrieved expiring warranties from API endpoint');
+        return { success: true, data };
+      } catch (apiError) {
+        console.error('Error fetching expiring warranties from API:', apiError);
+        return { 
+          success: false, 
+          error: 'Failed to load expiring warranties', 
+          data: { warranties: [] } 
+        };
+      }
+    }
+  },
   
-  uploadWarrantyDocument: (warrantyId: string, file: File) => 
-    uploadFile<{ url: string }>(`/warranties/${warrantyId}/documents`, file, 'document'),
+  uploadWarrantyDocument: async (warrantyId: string, file: File) => {
+    try {
+      const url = await uploadWarrantyDocument(file, warrantyId);
+      return { data: { url } };
+    } catch (error) {
+      console.error('Error uploading warranty document:', error);
+      return { error: error instanceof Error ? error.message : 'Failed to upload document' };
+    }
+  },
   
-  deleteWarrantyDocument: (warrantyId: string, documentId: string) => 
-    apiRequest(`/warranties/${warrantyId}/documents/${documentId}`, 'DELETE'),
+  deleteWarrantyDocument: async (warrantyId: string, documentIndex: number) => {
+    try {
+      // Get the warranty first
+      const response = await getWarranty(warrantyId);
+      const warranty = response.warranty;
+      
+      // Remove the document at the specified index
+      if (warranty.documents && Array.isArray(warranty.documents)) {
+        const updatedDocuments = [...warranty.documents];
+        updatedDocuments.splice(documentIndex, 1);
+        
+        // Update the warranty with the modified documents array
+        await updateSupabaseWarranty(warrantyId, { documents: updatedDocuments });
+      }
+      
+      return { data: { success: true } };
+    } catch (error) {
+      console.error(`Error deleting warranty document:`, error);
+      return { error: error instanceof Error ? error.message : 'Failed to delete document' };
+    }
+  },
   
-  getWarrantyStats: () => 
-    apiRequest<DashboardStats>('/warranties/stats/overview', 'GET'),
+  getWarrantyStats: async () => {
+    try {
+      const response = await getWarranties();
+      const warranties = response.warranties;
+      
+      // Count warranties by status
+      const active = warranties.filter(w => {
+        if (!w.end_date) return false;
+        return new Date(w.end_date) >= new Date();
+      }).length;
+      
+      const expired = warranties.filter(w => {
+        if (!w.end_date) return false;
+        return new Date(w.end_date) < new Date();
+      }).length;
+      
+      // Calculate average duration in months
+      const warrantiesWithDuration = warranties.filter(w => w.duration_months);
+      const avgDuration = warrantiesWithDuration.length > 0 
+        ? warrantiesWithDuration.reduce((sum, w) => sum + (w.duration_months || 0), 0) / warrantiesWithDuration.length
+        : 0;
+      
+      // Convert warranties to app format for the response
+      const recentlyAdded = warranties
+        .slice(0, 5)
+        .map(convertSupabaseWarrantyToAppWarranty);
+      
+      return { 
+        data: {
+          total: warranties.length,
+          active,
+          expired,
+          expiring: active - expired,
+          avgDurationMonths: Math.round(avgDuration * 10) / 10,
+          warrantyByCategory: [], // Would need to calculate this from the data
+          recentWarranties: recentlyAdded
+        } 
+      };
+    } catch (error) {
+      console.error('Error getting warranty stats:', error);
+      return { error: error instanceof Error ? error.message : 'Failed to load warranty statistics' };
+    }
+  },
   
   uploadDocument: async (file: File): Promise<WarrantyDocument | null> => {
     try {
@@ -626,6 +702,99 @@ export const warrantyApi = {
     }
   }
 };
+
+// Helper function to convert Supabase warranty format to app warranty format
+function convertSupabaseWarrantyToAppWarranty(supabaseWarranty: SupabaseWarranty): Warranty {
+  // Create a dummy user and product for now
+  // In a real implementation, these would be fetched from the appropriate tables
+  const dummyUser: User = {
+    _id: "dummy-user-id",
+    name: "User",
+    email: "user@example.com"
+  };
+  
+  const dummyProduct: Product = {
+    _id: "dummy-product-id",
+    name: supabaseWarranty.warranty_provider || "Unknown Product",
+    manufacturer: supabaseWarranty.warranty_type || "Unknown Manufacturer"
+  };
+  
+  // Convert document format
+  const documents: WarrantyDocument[] = (supabaseWarranty.documents || []).map(doc => {
+    if (typeof doc === 'string') {
+      return {
+        name: doc.split('/').pop() || 'Document',
+        path: doc,
+        uploadDate: supabaseWarranty.created_at || new Date().toISOString()
+      };
+    }
+    return {
+      name: 'Document',
+      path: doc,
+      uploadDate: supabaseWarranty.created_at || new Date().toISOString()
+    };
+  });
+  
+  return {
+    id: supabaseWarranty.id,
+    _id: supabaseWarranty.id,
+    user: dummyUser,
+    product: dummyProduct,
+    purchaseDate: supabaseWarranty.start_date || new Date().toISOString(),
+    expirationDate: supabaseWarranty.end_date || new Date().toISOString(),
+    warrantyProvider: supabaseWarranty.warranty_provider || "Unknown Provider",
+    warrantyNumber: supabaseWarranty.id || "N/A",
+    coverageDetails: supabaseWarranty.terms || "N/A",
+    documents: documents,
+    status: determineWarrantyStatus(supabaseWarranty),
+    notes: JSON.stringify(supabaseWarranty.contact_info) || "",
+    createdAt: supabaseWarranty.created_at || new Date().toISOString(),
+    updatedAt: supabaseWarranty.updated_at || new Date().toISOString()
+  };
+}
+
+// Helper function to determine warranty status based on Supabase warranty data
+function determineWarrantyStatus(supabaseWarranty: SupabaseWarranty): 'active' | 'expiring' | 'expired' {
+  if (!supabaseWarranty.end_date) return 'active';
+  
+  const now = new Date();
+  const expiryDate = new Date(supabaseWarranty.end_date);
+  const thirtyDaysFromNow = new Date(now.setDate(now.getDate() + 30));
+  
+  if (expiryDate < new Date()) {
+    return 'expired';
+  } else if (expiryDate <= thirtyDaysFromNow) {
+    return 'expiring';
+  } else {
+    return 'active';
+  }
+}
+
+// Helper function to convert app warranty format to Supabase warranty format
+function convertAppWarrantyToSupabaseWarranty(appWarranty: WarrantyInput): SupabaseWarrantyInput {
+  // Extract product ID if it's an object
+  const productId = typeof appWarranty.product === 'string' ? 
+    appWarranty.product : 
+    (appWarranty.product._id || 'unknown');
+    
+  // Convert document paths
+  const documents = appWarranty.documents?.map(doc => doc.path) || [];
+  
+  return {
+    product_id: productId,
+    warranty_provider: appWarranty.warrantyProvider,
+    warranty_type: appWarranty.product && typeof appWarranty.product !== 'string' ? 
+      appWarranty.product.manufacturer : 
+      'Unknown',
+    start_date: appWarranty.purchaseDate,
+    end_date: appWarranty.expirationDate,
+    terms: appWarranty.coverageDetails,
+    documents: documents,
+    contact_info: {
+      notes: appWarranty.notes
+    }
+  };
+}
 
 // Product API
 export const productApi = {
